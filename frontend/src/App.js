@@ -81,8 +81,6 @@ const SmartHomeApp = () => {
     sensors: { 
       motion: false, 
       smoke: false, 
-      gas: false,
-      water_leak: false,
       humidity: 45, 
       light: 75,
       air_quality: 'good',
@@ -121,7 +119,7 @@ const SmartHomeApp = () => {
       type: 'optimization', 
       message: 'AC efficiency can be improved by 15% with schedule optimization', 
       priority: 'medium',
-      savings: '$12/month'
+      savings: 'Rs. 12/month'
     },
     { 
       type: 'security', 
@@ -364,29 +362,29 @@ const SmartHomeApp = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">Energy Usage</p>
-              <p className="text-2xl font-bold text-blue-600">{energyData.current} kW</p>
+              <p className="text-2xl font-bold text-blue-600">{energyData.current.toFixed(1)} kW</p>
             </div>
             <div className="bg-blue-100 p-3 rounded-xl">
               <Zap className="w-6 h-6 text-blue-600" />
             </div>
           </div>
           <p className="text-sm text-gray-500 mt-2">
-            ${energyData.cost_today.toFixed(2)} today
+            Rs. {energyData.cost_today.toFixed(1)} today
           </p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm p-6 border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Temperature</p>
-              <p className="text-2xl font-bold text-orange-600">{devices.climate.temperature}°C</p>
+              <p className="text-sm text-gray-600">Grid Usage</p>
+              <p className="text-2xl font-bold text-purple-600">{energyData.grid_usage.toFixed(1)} kWh</p>
             </div>
-            <div className="bg-orange-100 p-3 rounded-xl">
-              <Thermometer className="w-6 h-6 text-orange-600" />
+            <div className="bg-purple-100 p-3 rounded-xl">
+              <Activity className="w-6 h-6 text-purple-600" />
             </div>
           </div>
           <p className="text-sm text-gray-500 mt-2">
-            Target: {devices.climate.target}°C
+            Monthly consumption
           </p>
         </div>
 
@@ -686,10 +684,10 @@ const SmartHomeApp = () => {
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { label: 'Current Usage', value: `${energyData.current} kW`, color: 'blue', icon: Zap },
-          { label: 'Daily Cost', value: `$${energyData.cost_today}`, color: 'green', icon: Battery },
-          { label: 'Solar Generated', value: `${energyData.solar_generated} kWh`, color: 'yellow', icon: Sun },
-          { label: 'Grid Usage', value: `${energyData.grid_usage} kWh`, color: 'purple', icon: Activity }
+          { label: 'Current Usage', value: `${energyData.current.toFixed(1)} kW`, color: 'blue', icon: Zap },
+          { label: 'Daily Cost', value: `Rs. ${energyData.cost_today.toFixed(1)}`, color: 'green', icon: Battery },
+          { label: 'Solar Generated', value: `${energyData.solar_generated.toFixed(1)} kWh`, color: 'yellow', icon: Sun },
+          { label: 'Grid Usage', value: `${energyData.grid_usage.toFixed(1)} kWh`, color: 'purple', icon: Activity }
         ].map(item => (
           <div key={item.label} className="bg-white rounded-2xl shadow-sm p-6 border">
             <div className="flex items-center justify-between">
@@ -714,9 +712,9 @@ const SmartHomeApp = () => {
           </h3>
           <div className="space-y-4">
             {[
-              { period: 'Today', usage: energyData.daily, target: 20, color: 'blue' },
-              { period: 'This Week', usage: energyData.weekly, target: 140, color: 'green' },
-              { period: 'This Month', usage: energyData.monthly, target: 600, color: 'purple' }
+              { period: 'Today', usage: energyData.daily.toFixed(1), target: 20, color: 'blue' },
+              { period: 'This Week', usage: energyData.weekly.toFixed(1), target: 140, color: 'green' },
+              { period: 'This Month', usage: energyData.monthly.toFixed(1), target: 600, color: 'purple' }
             ].map(item => (
               <div key={item.period}>
                 <div className="flex justify-between items-center mb-2">
@@ -750,19 +748,19 @@ const SmartHomeApp = () => {
             {[
               { 
                 tip: 'Optimize AC schedule', 
-                savings: '$12/month', 
+                savings: 'Rs. 12/month', 
                 impact: 'High',
                 description: 'Adjust temperature 2°C higher during day hours'
               },
               { 
                 tip: 'LED lighting upgrade', 
-                savings: '$8/month', 
+                savings: 'Rs. 8/month', 
                 impact: 'Medium',
                 description: 'Replace remaining incandescent bulbs'
               },
               { 
                 tip: 'Smart power strips', 
-                savings: '$5/month', 
+                savings: 'Rs. 5/month', 
                 impact: 'Low',
                 description: 'Eliminate phantom loads from electronics'
               }
@@ -894,9 +892,7 @@ const SmartHomeApp = () => {
             {/* Environmental Sensors */}
             <div className="pt-2 border-t">
               {[
-                { name: 'Smoke Detector', value: devices.sensors.smoke, type: 'boolean', danger: true },
-                { name: 'Gas Sensor', value: devices.sensors.gas, type: 'boolean', danger: true },
-                { name: 'Water Leak', value: devices.sensors.water_leak, type: 'boolean', danger: true }
+                { name: 'Smoke Detector', value: devices.sensors.smoke, type: 'boolean', danger: true }
               ].map(sensor => (
                 <div key={sensor.name} className="flex items-center justify-between p-2">
                   <span className="text-sm">{sensor.name}</span>
