@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const socketIo = require('socket.io');
+const mqtt = require('mqtt');
 require('dotenv').config();
 
 const app = express();
@@ -14,6 +15,7 @@ const io = socketIo(server, {
 });
 
 const PORT = process.env.PORT || 5000;
+const MQTT_URL = process.env.MQTT_URL || 'mqtt://localhost:1883';
 
 // Middleware
 app.use(cors());
@@ -27,6 +29,92 @@ let deviceState = {
   appliances: { ac: false, fan: true, tv: false },
   sensors: { motion: false, smoke: false, humidity: 45, light: 75 }
 };
+
+// MQTT client
+const mqttClient = mqtt.connect(MQTT_URL);
+
+mqttClient.on('connect', () => {
+  console.log(`🔗 Connected to MQTT broker at ${MQTT_URL}`);
+  // Subscribe to sensors and device state topics from hardware
+  mqttClient.subscribe([
+    'home/sensors/#',
+    'home/lights/+/state',
+    'home/security/doors/+/state',
+    'home/security/armed/state',
+    'home/appliances/+/state',
+    'home/thermostat/+/state'
+  ], (err) => {
+    if (err) console.error('MQTT subscribe error:', err.message);
+  });
+});
+
+function safeParse(payload) {
+  try { return JSON.parse(payload.toString()); } catch (_) { return payload.toString(); }
+}
+
+mqttClient.on('message', (topic, payload) => {
+  const data = safeParse(payload);
+  // Sensors e.g., home/sensors/humidity
+  if (topic.startsWith('home/sensors/')) {
+    const key = topic.split('/')[2];
+    if (deviceState.sensors.hasOwnProperty(key)) {
+      deviceState.sensors[key] = typeof data === 'string' ? Number(data) : data;
+      io.emit('sensorUpdate', deviceState.sensors);
+    }
+    return;
+  }
+
+  // Lights e.g., home/lights/living_room/state
+  if (topic.startsWith('home/lights/')) {
+    const room = topic.split('/')[2];
+    if (deviceState.lights.hasOwnProperty(room)) {
+      deviceState.lights[room] = data === true || data === 'ON' || data === '1';
+      io.emit('deviceUpdate', { category: 'lights', device: room, state: deviceState.lights[room] });
+    }
+    return;
+  }
+
+  // Security armed
+  if (topic === 'home/security/armed/state') {
+    deviceState.security.armed = data === true || data === 'ON' || data === '1';
+    io.emit('deviceUpdate', { category: 'security', device: 'armed', state: deviceState.security.armed });
+    return;
+  }
+
+  // Security doors e.g., home/security/doors/front/state
+  if (topic.startsWith('home/security/doors/')) {
+    const door = topic.split('/')[3];
+    if (deviceState.security.doors.hasOwnProperty(door)) {
+      deviceState.security.doors[door] = data === true || data === 'LOCKED' || data === '1' || data === 'ON';
+      io.emit('deviceUpdate', { category: 'security', device: door, state: deviceState.security.doors[door] });
+    }
+    return;
+  }
+
+  // Appliances e.g., home/appliances/ac/state
+  if (topic.startsWith('home/appliances/')) {
+    const appliance = topic.split('/')[2];
+    if (deviceState.appliances.hasOwnProperty(appliance)) {
+      deviceState.appliances[appliance] = data === true || data === 'ON' || data === '1';
+      io.emit('deviceUpdate', { category: 'appliances', device: appliance, state: deviceState.appliances[appliance] });
+    }
+    return;
+  }
+
+  // Thermostat e.g., home/thermostat/temperature/state
+  if (topic.startsWith('home/thermostat/')) {
+    const field = topic.split('/')[2];
+    if (['temperature', 'target', 'mode'].includes(field)) {
+      deviceState.thermostat[field] = field === 'mode' ? String(data) : Number(data);
+      io.emit('deviceUpdate', { category: 'thermostat', device: field, state: deviceState.thermostat[field] });
+    }
+  }
+});
+
+function mqttPublish(topic, value) {
+  const payload = typeof value === 'string' ? value : JSON.stringify(value);
+  mqttClient.publish(topic, payload, { qos: 0, retain: false });
+}
 
 // Routes
 app.get('/', (req, res) => {
@@ -55,13 +143,39 @@ app.post('/api/devices/:category/:device', (req, res) => {
   const { category, device } = req.params;
   const { state } = req.body;
   
+  let updated = false;
+  // Handle flat categories
   if (deviceState[category] && deviceState[category][device] !== undefined) {
     deviceState[category][device] = state;
-    io.emit('deviceUpdate', { category, device, state });
-    res.json({ success: true, message: `${device} updated to ${state}` });
-  } else {
-    res.status(404).json({ success: false, error: 'Device not found' });
+    updated = true;
   }
+  // Handle nested security doors
+  if (!updated && category === 'security' && deviceState.security.doors[device] !== undefined) {
+    deviceState.security.doors[device] = state;
+    updated = true;
+  }
+
+  if (!updated) {
+    return res.status(404).json({ success: false, error: 'Device not found' });
+  }
+
+  // Emit to websocket clients
+  io.emit('deviceUpdate', { category, device, state });
+
+  // Publish to MQTT for hardware to act upon
+  if (category === 'lights') {
+    mqttPublish(`home/lights/${device}/set`, state ? 'ON' : 'OFF');
+  } else if (category === 'appliances') {
+    mqttPublish(`home/appliances/${device}/set`, state ? 'ON' : 'OFF');
+  } else if (category === 'security' && device === 'armed') {
+    mqttPublish('home/security/armed/set', state ? 'ON' : 'OFF');
+  } else if (category === 'security') {
+    mqttPublish(`home/security/doors/${device}/set`, state ? 'LOCK' : 'UNLOCK');
+  } else if (category === 'thermostat') {
+    mqttPublish(`home/thermostat/${device}/set`, state);
+  }
+
+  res.json({ success: true, message: `${device} updated to ${state}` });
 });
 
 app.get('/api/ml/prediction', (req, res) => {
@@ -89,14 +203,15 @@ io.on('connection', (socket) => {
   });
 });
 
-// Simulate sensor updates
-setInterval(() => {
-  deviceState.sensors.temperature = (20 + Math.random() * 10).toFixed(1);
-  deviceState.sensors.humidity = (40 + Math.random() * 20).toFixed(1);
-  deviceState.sensors.light = (Math.random() * 100).toFixed(1);
-  
-  io.emit('sensorUpdate', deviceState.sensors);
-}, 5000);
+// Optional: Simulated sensor updates can be disabled when hardware is connected
+if (process.env.SIMULATE_SENSORS !== 'false') {
+  setInterval(() => {
+    deviceState.sensors.temperature = (20 + Math.random() * 10).toFixed(1);
+    deviceState.sensors.humidity = (40 + Math.random() * 20).toFixed(1);
+    deviceState.sensors.light = (Math.random() * 100).toFixed(1);
+    io.emit('sensorUpdate', deviceState.sensors);
+  }, 5000);
+}
 
 server.listen(PORT, () => {
   console.log(`🚀 Smart Home Server running on port ${PORT}`);
