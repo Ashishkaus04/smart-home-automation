@@ -3,6 +3,7 @@ import 'screens/security_screen.dart';
 import 'screens/energy_screen.dart';
 import 'screens/devices_screen.dart';
 import 'screens/bedroom_mqtt_page.dart';
+import 'screens/config_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -46,12 +47,12 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   int _currentIndex = 0;
 
-  final List<Widget> _pages = const [
-    DevicesScreen(),
-    SecurityScreen(),
-    EnergyScreen(),
-    BedroomMqttPage(),
-    Placeholder(),
+  final List<Widget> _pages = [
+    const DevicesScreen(),
+    const SecurityScreen(),
+    const EnergyScreen(),
+    const BedroomMqttPage(),
+    const ConfigScreen(),
   ];
 
   @override
@@ -70,7 +71,7 @@ class _MyHomePageState extends State<MyHomePage> {
           NavigationDestination(icon: Icon(Icons.shield_outlined), selectedIcon: Icon(Icons.shield), label: 'Security'),
           NavigationDestination(icon: Icon(Icons.bolt_outlined), selectedIcon: Icon(Icons.bolt), label: 'Energy'),
           NavigationDestination(icon: Icon(Icons.bed_outlined), selectedIcon: Icon(Icons.bed), label: 'Bedroom'),
-          NavigationDestination(icon: Icon(Icons.insights_outlined), selectedIcon: Icon(Icons.insights), label: 'Insights'),
+          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Config'),
         ],
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
+import '../config/app_config.dart';
 
 class BedroomMqttPage extends StatefulWidget {
   const BedroomMqttPage({super.key});
@@ -10,8 +11,8 @@ class BedroomMqttPage extends StatefulWidget {
 }
 
 class _BedroomMqttPageState extends State<BedroomMqttPage> {
-  // Updated to connect to your laptop's Mosquitto broker via phone hotspot
-  final client = MqttServerClient('10.217.139.106', 'flutter_app_${DateTime.now().millisecondsSinceEpoch}');
+  // MQTT client using configuration from AppConfig
+  late final MqttServerClient client;
   bool lightOn = false;
   bool fanOn = false;
   bool buzzerOn = false;
@@ -22,6 +23,8 @@ class _BedroomMqttPageState extends State<BedroomMqttPage> {
   @override
   void initState() {
     super.initState();
+    // Initialize MQTT client with configuration
+    client = MqttServerClient(AppConfig.mqttHost, 'flutter_app_${DateTime.now().millisecondsSinceEpoch}');
     connectMQTT();
   }
 
@@ -32,9 +35,9 @@ class _BedroomMqttPageState extends State<BedroomMqttPage> {
   }
 
   Future<void> connectMQTT() async {
-    print('Starting MQTT connection to 10.217.139.106:1883');
+    print('Starting MQTT connection to ${AppConfig.connectionInfo}');
     
-    client.port = 1883;
+    client.port = AppConfig.mqttPort;
     client.keepAlivePeriod = 20;
     client.autoReconnect = true;
     client.connectTimeoutPeriod = 10000; // 10 seconds timeout
@@ -152,6 +155,13 @@ class _BedroomMqttPageState extends State<BedroomMqttPage> {
           style: TextStyle(
             color: isConnected ? Colors.green.shade800 : Colors.red.shade800,
             fontWeight: FontWeight.bold,
+          ),
+        ),
+        subtitle: Text(
+          AppConfig.connectionInfo,
+          style: TextStyle(
+            color: isConnected ? Colors.green.shade600 : Colors.red.shade600,
+            fontSize: 12,
           ),
         ),
         trailing: isConnected ? null : IconButton(
@@ -318,14 +328,14 @@ class _BedroomMqttPageState extends State<BedroomMqttPage> {
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 8),
-                            Text(
-                              'Laptop should be connected to hotspot IP: 10.217.139.106',
-                              style: TextStyle(
-                                color: Colors.orange.shade700,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
+                    Text(
+                      'Server should be running at: ${AppConfig.connectionInfo}',
+                      style: TextStyle(
+                        color: Colors.orange.shade700,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                           ],
                         ),
                       ),
