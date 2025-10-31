@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'screens/security_screen.dart';
 import 'screens/energy_screen.dart';
 import 'screens/devices_screen.dart';
-import 'screens/bedroom_mqtt_page.dart';
 import 'screens/config_screen.dart';
+import 'screens/dashboard_screen.dart';
+import 'screens/automation_screen.dart';
+import 'screens/ai_insights_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -47,31 +49,64 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   int _currentIndex = 0;
 
-  final List<Widget> _pages = [
-    const DevicesScreen(),
-    const SecurityScreen(),
-    const EnergyScreen(),
-    const BedroomMqttPage(),
-    const ConfigScreen(),
-  ];
+  Widget _pageFor(int index) {
+    switch (index) {
+      case 0:
+        return const DashboardScreen();
+      case 1:
+        return const DevicesScreen();
+      case 2:
+        return const SecurityScreen();
+      case 3:
+        return const EnergyScreen();
+      case 4:
+        return const AutomationScreen();
+      case 5:
+      default:
+        return const AiInsightsScreen();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    String currentTitle;
+    switch (_currentIndex) {
+      case 0:
+        currentTitle = 'Dashboard';
+        break;
+      case 1:
+        currentTitle = 'Devices';
+        break;
+      case 2:
+        currentTitle = 'Security';
+        break;
+      case 3:
+        currentTitle = 'Energy';
+        break;
+      case 4:
+        currentTitle = 'Automation';
+        break;
+      default:
+        currentTitle = 'Insights';
+    }
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title),
+        centerTitle: true,
+        title: Text(currentTitle),
       ),
-      body: _pages[_currentIndex],
+      body: _pageFor(_currentIndex),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (value) => setState(() => _currentIndex = value),
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
         destinations: const [
+          NavigationDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: 'Dashboard'),
           NavigationDestination(icon: Icon(Icons.devices_other_outlined), selectedIcon: Icon(Icons.devices_other), label: 'Devices'),
           NavigationDestination(icon: Icon(Icons.shield_outlined), selectedIcon: Icon(Icons.shield), label: 'Security'),
           NavigationDestination(icon: Icon(Icons.bolt_outlined), selectedIcon: Icon(Icons.bolt), label: 'Energy'),
-          NavigationDestination(icon: Icon(Icons.bed_outlined), selectedIcon: Icon(Icons.bed), label: 'Bedroom'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Config'),
+          NavigationDestination(icon: Icon(Icons.auto_mode_outlined), selectedIcon: Icon(Icons.auto_mode), label: 'Automation'),
+          NavigationDestination(icon: Icon(Icons.insights_outlined), selectedIcon: Icon(Icons.insights), label: 'Insights'),
         ],
       ),
     );

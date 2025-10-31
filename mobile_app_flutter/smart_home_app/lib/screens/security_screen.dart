@@ -1,8 +1,4 @@
 import 'package:flutter/material.dart';
-import '../models/device_models.dart';
-import '../services/api_service.dart';
-import '../services/socket_service.dart';
-import '../services/api_service.dart' show ApiConfig;
 
 class SecurityScreen extends StatefulWidget {
   const SecurityScreen({super.key});
@@ -12,165 +8,167 @@ class SecurityScreen extends StatefulWidget {
 }
 
 class _SecurityScreenState extends State<SecurityScreen> {
-  final ApiService _api = ApiService();
-  final SocketService _socket = SocketService();
-  DeviceState? _state;
-  bool _loading = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-    _socket.connect(ApiConfig.baseUrl, onConnect: () {});
-    _socket.onDeviceState((data) {
-      setState(() {
-        _state = DeviceState.fromJson(Map<String, dynamic>.from(data as Map));
-      });
-    });
-    _socket.onDeviceUpdate((_) => _refresh());
-    _socket.onSensorUpdate((sensors) {
-      if (_state == null) return;
-      final current = _state!;
-      final merged = Map<String, dynamic>.from({
-        'lights': current.lights,
-        'thermostat': {
-          'temperature': current.thermostat.temperature,
-          'target': current.thermostat.target,
-          'mode': current.thermostat.mode,
-        },
-        'security': {
-          'armed': current.security.armed,
-          'doors': current.security.doors,
-        },
-        'appliances': current.appliances,
-        'sensors': sensors,
-      });
-      setState(() {
-        _state = DeviceState.fromJson(merged);
-      });
-    });
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final res = await _api.getDevices();
-      _state = DeviceState.fromJson(res['data'] as Map<String, dynamic>);
-    } catch (e) {
-      _error = e.toString();
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _refresh() => _load();
-
-  @override
-  void dispose() {
-    _socket.dispose();
-    super.dispose();
-  }
+  // Local UI state (no backend yet)
+  bool _armed = true;
+  bool _camFrontOnline = true;
+  bool _camBackOnline = true;
+  bool _doorFrontLocked = true;
+  bool _doorBackLocked = false;
+  bool _motionLiving = false;
+  bool _motionBedroom = false;
+  bool _motionKitchen = false;
+  bool _smokeAlert = false;
+  bool _lpgAlert = false;
+  // Windows
+  bool _winLivingClosed = true;
+  bool _winBedroomClosed = true;
+  bool _winKitchenClosed = false;
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null) {
-      return Center(
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Error: $_error'),
-            const SizedBox(height: 8),
-            FilledButton(onPressed: _refresh, child: const Text('Retry')),
-          ],
-        ),
-      );
-    }
-    final s = _state!;
-    return RefreshIndicator(
-      onRefresh: _refresh,
-      child: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          Card(
-            child: ListTile(
-              leading: Icon(Icons.shield, color: s.security.armed ? Colors.green : Colors.red),
-              title: Text(s.security.armed ? 'System Armed' : 'System Disarmed'),
-              subtitle: const Text('Security status'),
-              trailing: Switch(
-                value: s.security.armed,
-                onChanged: (value) async {
-                  try {
-                    await _api.updateSecurityArmed(value);
-                    await _refresh();
-                  } catch (e) {
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
-                  }
-                },
+            Card(
+              elevation: 2,
+              child: ListTile(
+                leading: Icon(Icons.shield, color: _armed ? Colors.green : Colors.red),
+                title: Text(_armed ? 'System Armed' : 'System Disarmed'),
+                subtitle: const Text('Security status'),
+                trailing: Switch(value: _armed, onChanged: (v) => setState(() => _armed = v)),
               ),
             ),
-          ),
-          const SizedBox(height: 8),
-          const Text('Doors', style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          ...s.security.doors.entries.map((e) => Card(
-                child: ListTile(
-                  leading: Icon(e.value ? Icons.lock : Icons.lock_open, color: e.value ? Colors.green : Colors.red),
-                  title: Text('${e.key[0].toUpperCase()}${e.key.substring(1)} door'),
-                  subtitle: Text(e.value ? 'Locked' : 'Unlocked'),
-                  trailing: Switch(
-                    value: e.value,
-                    onChanged: (value) async {
-                      try {
-                        await _api.updateDoorLock(e.key, value);
-                        await _refresh();
-                      } catch (ex) {
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $ex')));
-                      }
-                    },
-                  ),
+            const SizedBox(height: 12),
+            _section('Cameras', Row(
+              children: [
+                Expanded(child: _statusCard('Front Camera', Icons.videocam, _camFrontOnline ? 'Online' : 'Offline', _camFrontOnline ? Colors.green : Colors.red, onTap: () => setState(() => _camFrontOnline = !_camFrontOnline))),
+                const SizedBox(width: 12),
+                Expanded(child: _statusCard('Back Camera', Icons.videocam, _camBackOnline ? 'Online' : 'Offline', _camBackOnline ? Colors.green : Colors.red, onTap: () => setState(() => _camBackOnline = !_camBackOnline))),
+              ],
+            )),
+            const SizedBox(height: 12),
+            _section('Doors', Row(
+              children: [
+                Expanded(child: _statusCard('Front Door', Icons.door_front_door, _doorFrontLocked ? 'Locked' : 'Unlocked', _doorFrontLocked ? Colors.green : Colors.red, onTap: () => setState(() => _doorFrontLocked = !_doorFrontLocked))),
+                const SizedBox(width: 12),
+                Expanded(child: _statusCard('Back Door', Icons.door_back_door, _doorBackLocked ? 'Locked' : 'Unlocked', _doorBackLocked ? Colors.green : Colors.red, onTap: () => setState(() => _doorBackLocked = !_doorBackLocked))),
+              ],
+            )),
+            const SizedBox(height: 12),
+            _section('Windows', Row(
+              children: [
+                Expanded(child: _statusCard('Living Window', Icons.window, _winLivingClosed ? 'Closed' : 'Open', _winLivingClosed ? Colors.green : Colors.orange, onTap: () => setState(() => _winLivingClosed = !_winLivingClosed))),
+                const SizedBox(width: 12),
+                Expanded(child: _statusCard('Bedroom Window', Icons.window, _winBedroomClosed ? 'Closed' : 'Open', _winBedroomClosed ? Colors.green : Colors.orange, onTap: () => setState(() => _winBedroomClosed = !_winBedroomClosed))),
+              ],
+            )),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _statusCard('Kitchen Window', Icons.window, _winKitchenClosed ? 'Closed' : 'Open', _winKitchenClosed ? Colors.green : Colors.orange, onTap: () => setState(() => _winKitchenClosed = !_winKitchenClosed))),
+                const SizedBox(width: 12),
+                const Expanded(child: SizedBox.shrink()),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _section('Motion', Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: _statusCard('Living Motion', _motionLiving ? Icons.motion_photos_on : Icons.motion_photos_off, _motionLiving ? 'Detected' : 'Clear', _motionLiving ? Colors.orange : Colors.green, onTap: () => setState(() => _motionLiving = !_motionLiving))),
+                    const SizedBox(width: 12),
+                    Expanded(child: _statusCard('Bedroom Motion', _motionBedroom ? Icons.motion_photos_on : Icons.motion_photos_off, _motionBedroom ? 'Detected' : 'Clear', _motionBedroom ? Colors.orange : Colors.green, onTap: () => setState(() => _motionBedroom = !_motionBedroom))),
+                  ],
                 ),
-              )),
-          const SizedBox(height: 12),
-          const Text('Sensors', style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Card(
-            child: Column(children: [
-              ListTile(
-                leading: Icon(s.sensors.motion ? Icons.motion_photos_on : Icons.motion_photos_off),
-                title: const Text('Motion'),
-                trailing: Text(s.sensors.motion ? 'Detected' : 'Clear'),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: _statusCard('Kitchen Motion', _motionKitchen ? Icons.motion_photos_on : Icons.motion_photos_off, _motionKitchen ? 'Detected' : 'Clear', _motionKitchen ? Colors.orange : Colors.green, onTap: () => setState(() => _motionKitchen = !_motionKitchen))),
+                    const SizedBox(width: 12),
+                    const Expanded(child: SizedBox.shrink()),
+                  ],
+                ),
+              ],
+            )),
+            const SizedBox(height: 12),
+            _section('Other Sensors', Column(
+              children: [
+                _sensorTile('Smoke', _smokeAlert ? Icons.warning : Icons.check_circle, _smokeAlert ? 'ALERT' : 'Normal', _smokeAlert ? Colors.red : Colors.green, onTap: () => setState(() => _smokeAlert = !_smokeAlert)),
+                const Divider(height: 1),
+                _sensorTile('LPG', _lpgAlert ? Icons.blur_on : Icons.check_circle, _lpgAlert ? 'ALERT' : 'Normal', _lpgAlert ? Colors.red : Colors.green, onTap: () => setState(() => _lpgAlert = !_lpgAlert)),
+              ],
+            )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _section(String title, Widget child) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        child,
+      ],
+    );
+  }
+
+  Widget _statusCard(String title, IconData icon, String status, Color color, {VoidCallback? onTap}) {
+    return Card(
+      elevation: 2,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              CircleAvatar(backgroundColor: color.withOpacity(0.15), child: Icon(icon, color: color)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    Text(status, style: TextStyle(color: color)),
+                  ],
+                ),
               ),
-              const Divider(height: 1),
-              ListTile(
-                leading: Icon(s.sensors.smoke ? Icons.warning : Icons.check_circle),
-                title: const Text('Smoke'),
-                trailing: Text(s.sensors.smoke ? 'Alert' : 'Normal'),
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.water_drop_outlined),
-                title: const Text('Humidity'),
-                trailing: Text('${s.sensors.humidity}%'),
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.light_mode_outlined),
-                title: const Text('Light'),
-                trailing: Text('${s.sensors.light}'),
-              ),
-            ]),
+              Icon(Icons.chevron_right, color: Colors.grey[600]),
+            ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sensorTile(String title, IconData icon, String status, Color color, {VoidCallback? onTap}) {
+    return ListTile(
+      onTap: onTap,
+      leading: Icon(icon, color: color),
+      title: Text(title),
+      trailing: Text(status, style: TextStyle(color: color)),
+    );
+  }
+
+  Widget _motionRow(String title, bool value, ValueChanged<bool> onChanged) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        children: [
+          Icon(value ? Icons.motion_photos_on : Icons.motion_photos_off, color: value ? Colors.orange : Colors.grey),
+          const SizedBox(width: 12),
+          Expanded(child: Text(title)),
+          Switch(value: value, onChanged: onChanged),
         ],
       ),
     );
   }
 }
-
 
