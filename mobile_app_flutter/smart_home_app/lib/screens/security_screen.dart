@@ -19,8 +19,9 @@ class _SecurityScreenState extends State<SecurityScreen> {
   bool _motionLiving = false;
   bool _motionBedroom = false;
   bool _motionKitchen = false;
-  bool _smokeAlert = false;
-  bool _lpgAlert = false;
+  double _smokeLevel = 0;
+  double _lpgLevel = 0;
+
   // Windows
   bool _winLivingClosed = true;
   bool _winBedroomClosed = true;
@@ -99,13 +100,24 @@ class _SecurityScreenState extends State<SecurityScreen> {
               ],
             )),
             const SizedBox(height: 12),
-            _section('Other Sensors', Column(
-              children: [
-                _sensorTile('Smoke', _smokeAlert ? Icons.warning : Icons.check_circle, _smokeAlert ? 'ALERT' : 'Normal', _smokeAlert ? Colors.red : Colors.green, onTap: () => setState(() => _smokeAlert = !_smokeAlert)),
-                const Divider(height: 1),
-                _sensorTile('LPG', _lpgAlert ? Icons.blur_on : Icons.check_circle, _lpgAlert ? 'ALERT' : 'Normal', _lpgAlert ? Colors.red : Colors.green, onTap: () => setState(() => _lpgAlert = !_lpgAlert)),
-              ],
-            )),
+            _section('Air Quality Sensors', Column(
+  children: [
+    _sensorTile(
+      'Smoke Level',
+      Icons.local_fire_department,
+      '${_smokeLevel.toStringAsFixed(1)} ppm',
+      _smokeLevel > 60 ? Colors.red : Colors.green,
+    ),
+    const Divider(height: 1),
+    _sensorTile(
+      'LPG Level',
+      Icons.local_gas_station,
+      '${_lpgLevel.toStringAsFixed(1)} ppm',
+      _lpgLevel > 60 ? Colors.red : Colors.green,
+    ),
+  ],
+))
+
           ],
         ),
       ),
@@ -151,10 +163,21 @@ class _SecurityScreenState extends State<SecurityScreen> {
         } else if (topic == 'kitchen/motion') {
           _motionKitchen = payload.toUpperCase().contains('DETECTED') || payload.toUpperCase() == 'ON';
         } else if (topic == 'security/smoke') {
-          _smokeAlert = payload.toUpperCase().contains('ALERT');
-        } else if (topic == 'security/lpg') {
-          _lpgAlert = payload.toUpperCase().contains('ALERT');
-        }
+  if (payload.toUpperCase().contains('ALERT')) {
+    _smokeLevel = 100; // Force red alert
+  } else {
+    final val = double.tryParse(payload);
+    if (val != null) _smokeLevel = val;
+  }
+} else if (topic == 'security/lpg') {
+  if (payload.toUpperCase().contains('ALERT')) {
+    _lpgLevel = 100; // Force red alert
+  } else {
+    final val = double.tryParse(payload);
+    if (val != null) _lpgLevel = val;
+  }
+}
+
       });
     });
   }
@@ -201,13 +224,14 @@ class _SecurityScreenState extends State<SecurityScreen> {
   }
 
   Widget _sensorTile(String title, IconData icon, String status, Color color, {VoidCallback? onTap}) {
-    return ListTile(
-      onTap: onTap,
-      leading: Icon(icon, color: color),
-      title: Text(title),
-      trailing: Text(status, style: TextStyle(color: color)),
-    );
-  }
+  return ListTile(
+    onTap: onTap,
+    leading: Icon(icon, color: color),
+    title: Text(title),
+    trailing: Text(status, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+  );
+}
+
 
   Widget _motionRow(String title, bool value, ValueChanged<bool> onChanged) {
     return Padding(
