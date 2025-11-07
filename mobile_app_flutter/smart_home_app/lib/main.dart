@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'screens/security_screen.dart';
 import 'screens/energy_screen.dart';
 import 'screens/devices_screen.dart';
-import 'screens/config_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/automation_screen.dart';
 import 'screens/ai_insights_screen.dart';
+import 'services/mqtt_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -48,6 +48,13 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize MQTT once at app start
+    MqttService.instance.connect();
+  }
 
   Widget _pageFor(int index) {
     switch (index) {

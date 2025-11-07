@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/mqtt_service.dart';
 
 class DevicesScreen extends StatefulWidget {
   const DevicesScreen({super.key});
@@ -51,6 +52,35 @@ class _DevicesScreenState extends State<DevicesScreen> {
     );
   }
 
+  String? _topicForRoom(String room) {
+    switch (room) {
+      case 'Bedroom':
+        return 'bedroom/light';
+      case 'Living Room':
+        return 'living_room/light';
+      case 'Kitchen':
+        return 'kitchen/light';
+      case 'Bathroom':
+        return 'bathroom/light';
+    }
+    return null;
+  }
+
+  String? _brightnessTopicForRoom(String room) {
+    // Optional brightness topic if supported later
+    switch (room) {
+      case 'Bedroom':
+        return 'bedroom/light/brightness';
+      case 'Living Room':
+        return 'living_room/light/brightness';
+      case 'Kitchen':
+        return 'kitchen/light/brightness';
+      case 'Bathroom':
+        return 'bathroom/light/brightness';
+    }
+    return null;
+  }
+
   Widget _sectionTitle(String text) {
     return Text(text, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold));
   }
@@ -74,7 +104,14 @@ class _DevicesScreenState extends State<DevicesScreen> {
                         Expanded(child: Text(room, style: const TextStyle(fontWeight: FontWeight.w600))),
                         Switch(
                           value: _lightOn[room]!,
-                          onChanged: (v) => setState(() => _lightOn[room] = v),
+                          onChanged: (v) {
+                            setState(() => _lightOn[room] = v);
+                            // Publish to corresponding MQTT topic
+                            final topic = _topicForRoom(room);
+                            if (topic != null) {
+                              MqttService.instance.publishOnOff(topic, v);
+                            }
+                          },
                         ),
                       ],
                     ),
@@ -91,7 +128,13 @@ class _DevicesScreenState extends State<DevicesScreen> {
                             divisions: 20,
                             label: _lightIntensity[room]!.round().toString(),
                             onChanged: _lightOn[room]!
-                                ? (v) => setState(() => _lightIntensity[room] = v)
+                                ? (v) {
+                                    setState(() => _lightIntensity[room] = v);
+                                    final t = _brightnessTopicForRoom(room);
+                                    if (t != null) {
+                                      MqttService.instance.publishString(t, _lightIntensity[room]!.round().toString());
+                                    }
+                                  }
                                 : null,
                           ),
                         ),
@@ -116,11 +159,20 @@ class _DevicesScreenState extends State<DevicesScreen> {
         padding: const EdgeInsets.all(12),
         child: Column(
           children: [
-            _applianceTile('Smart TV', Icons.tv, _tvOn, (v) => setState(() => _tvOn = v)),
+            _applianceTile('Smart TV', Icons.tv, _tvOn, (v) {
+              setState(() => _tvOn = v);
+              MqttService.instance.publishOnOff('appliances/tv', v);
+            }),
             const Divider(),
-            _applianceTile('Music System', Icons.music_note, _musicOn, (v) => setState(() => _musicOn = v)),
+            _applianceTile('Music System', Icons.music_note, _musicOn, (v) {
+              setState(() => _musicOn = v);
+              MqttService.instance.publishOnOff('appliances/music', v);
+            }),
             const Divider(),
-            _applianceTile('Coffee Maker', Icons.coffee, _coffeeOn, (v) => setState(() => _coffeeOn = v)),
+            _applianceTile('Coffee Maker', Icons.coffee, _coffeeOn, (v) {
+              setState(() => _coffeeOn = v);
+              MqttService.instance.publishOnOff('appliances/coffee', v);
+            }),
           ],
         ),
       ),

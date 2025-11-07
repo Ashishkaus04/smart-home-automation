@@ -23,11 +23,23 @@ app.use(express.json());
 
 // Device state storage
 let deviceState = {
-  lights: { living_room: false, bedroom: true, kitchen: false, bathroom: false },
+  lights: { 
+    living_room: false, 
+    bedroom: true, 
+    kitchen: false, 
+    bathroom: false,
+    garage: false,
+    garden: false
+  },
   thermostat: { temperature: 22, target: 24, mode: 'auto' },
-  security: { armed: true, doors: { front: true, back: true }},
-  appliances: { ac: false, fan: true, tv: false },
-  sensors: { motion: false, smoke: false, humidity: 45, light: 75 }
+  security: { 
+    armed: true, 
+    doors: { front: true, back: true },
+    motion: { living: false, bedroom: false, kitchen: false },
+    windows: { living: true, bedroom: true, kitchen: true }
+  },
+  appliances: { ac: false, fan: true, tv: false, car_charger: false },
+  sensors: { motion: false, smoke: false, humidity: 45, light: 75, temperature: 22 }
 };
 
 // MQTT client
@@ -61,6 +73,10 @@ mqttClient.on('message', (topic, payload) => {
       deviceState.sensors[key] = typeof data === 'string' ? Number(data) : data;
       io.emit('sensorUpdate', deviceState.sensors);
     }
+    // Also update thermostat temperature if key is 'temperature'
+    if (key === 'temperature') {
+      deviceState.thermostat.temperature = typeof data === 'string' ? Number(data) : data;
+    }
     return;
   }
 
@@ -87,6 +103,18 @@ mqttClient.on('message', (topic, payload) => {
     if (deviceState.security.doors.hasOwnProperty(door)) {
       deviceState.security.doors[door] = data === true || data === 'LOCKED' || data === '1' || data === 'ON';
       io.emit('deviceUpdate', { category: 'security', device: door, state: deviceState.security.doors[door] });
+    }
+    return;
+  }
+
+  // Security motion sensors e.g., home/security/motion_sensors/living/state
+  if (topic.startsWith('home/security/motion_sensors/')) {
+    const location = topic.split('/')[3];
+    if (deviceState.security.motion.hasOwnProperty(location)) {
+      deviceState.security.motion[location] = data === true || data === 'ON' || data === '1';
+      io.emit('deviceUpdate', { category: 'security', device: `motion_${location}`, state: deviceState.security.motion[location] });
+      // Also update general motion sensor
+      deviceState.sensors.motion = Object.values(deviceState.security.motion).some(v => v === true);
     }
     return;
   }

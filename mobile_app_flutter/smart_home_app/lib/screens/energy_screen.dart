@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../services/mqtt_service.dart';
+import 'package:mqtt_client/mqtt_client.dart';
 // UI-first mock version (no API calls)
 
 class EnergyScreen extends StatefulWidget {
@@ -19,6 +21,26 @@ class _EnergyScreenState extends State<EnergyScreen> with TickerProviderStateMix
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    // Subscribe to energy topics
+    MqttService.instance.subscribe('energy/consumption');
+    MqttService.instance.subscribe('energy/power');
+    MqttService.instance.subscribe('energy/cost');
+    MqttService.instance.subscribe('energy/monthly');
+    MqttService.instance.messages.listen((event) {
+      final topic = event.topic;
+      final rec = event.payload as MqttPublishMessage;
+      final payload = MqttPublishPayload.bytesToStringAsString(rec.payload.message);
+      if (!mounted) return;
+      setState(() {
+        if (topic == 'energy/consumption') {
+          currentKwh = double.tryParse(payload) ?? currentKwh;
+        } else if (topic == 'energy/cost') {
+          currentCost = double.tryParse(payload) ?? currentCost;
+        } else if (topic == 'energy/monthly') {
+          gridKwhMonth = double.tryParse(payload) ?? gridKwhMonth;
+        }
+      });
+    });
   }
 
   @override

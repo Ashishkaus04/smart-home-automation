@@ -3,15 +3,15 @@ class AppConfig {
   // Change these values based on your network environment
   
   // Home Network Configuration
-  static const String homeMqttHost = '192.168.1.100';  // Your home router IP
+  static const String homeMqttHost = '172.16.2.106';  // PC IP on hotspot
   static const int homeMqttPort = 1883;
   
   // College Network Configuration  
-  static const String collegeMqttHost = '10.217.139.106';  // Your college hotspot IP
+  static const String collegeMqttHost = '172.16.2.106';  // Hotspot broker IP
   static const int collegeMqttPort = 1883;
   
   // Current Environment - Change this to switch between home and college
-  static const Environment currentEnvironment = Environment.college; // change to home 
+  static const Environment currentEnvironment = Environment.college; // using hotspot IP
   
   // Get current MQTT host based on environment
   static String get mqttHost {

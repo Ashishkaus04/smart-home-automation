@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../services/mqtt_service.dart';
+import 'package:mqtt_client/mqtt_client.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -13,9 +15,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   double monthKwh = 92.4;
   int monthDays = 30;
   String weatherSummary = 'Partly Cloudy';
-  double weatherTemp = 27.5;
-  int weatherHumidity = 62;
-  int aqi = 72;
+  double weatherTemp = double.nan; // updated from MQTT
+  int weatherHumidity = -1;        // updated from MQTT
+  int aqi = -1;                    // updated from MQTT
   bool acOn = false;
   int acTemp = 24;
   // Quick lighting states
@@ -36,6 +38,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final time = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
     return '$date  •  $time';
   }
+
+  @override
+  @override
+void initState() {
+  super.initState();
+
+  // 1️⃣ Connect to Mosquitto first
+  MqttService.instance.connect().then((_) {
+    print('[MQTT] ✅ Connected, subscribing now...');
+
+    // 2️⃣ Subscribe to your topics only after connection
+    MqttService.instance.subscribe('living_room/temperature');
+    MqttService.instance.subscribe('living_room/humidity');
+    MqttService.instance.subscribe('living_room/aqi');
+    MqttService.instance.subscribe('living_room/#');
+    MqttService.instance.subscribe('energy/consumption');
+  });
+
+  // 3️⃣ Listen to all incoming messages
+  MqttService.instance.messages.listen((event) {
+    final topic = event.topic;
+    final rec = event.payload as MqttPublishMessage;
+    final payload =
+        MqttPublishPayload.bytesToStringAsString(rec.payload.message).trim();
+
+    // 🪄 Debug print — check console for incoming messages
+    print('📥 MQTT -> $topic : $payload');
+
+    if (!mounted) return;
+    setState(() {
+      if (topic == 'living_room/temperature') {
+        final v = double.tryParse(payload);
+        if (v != null) weatherTemp = v;
+      } else if (topic == 'living_room/humidity') {
+        final v = double.tryParse(payload);
+        if (v != null) weatherHumidity = v.round();
+      } else if (topic == 'living_room/aqi') {
+        final v = int.tryParse(payload);
+        if (v != null) aqi = v;
+      }
+    });
+  });
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -172,28 +218,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final isNarrow = constraints.maxWidth < 400;
-                final spacing = 12.0;
-                final columns = isNarrow ? 2 : 4;
-                final totalSpacing = spacing * (columns - 1);
-                final itemWidth = (constraints.maxWidth - totalSpacing) / columns;
-
-                List<Widget> items = [
-                  _roomQuickAction('Bedroom', Icons.bed, bedroomLight, () => setState(() => bedroomLight = !bedroomLight)),
-                  _roomQuickAction('Living', Icons.weekend, livingLight, () => setState(() => livingLight = !livingLight)),
-                  _roomQuickAction('Kitchen', Icons.kitchen, kitchenLight, () => setState(() => kitchenLight = !kitchenLight)),
-                  _roomQuickAction('Bathroom', Icons.shower, bathroomLight, () => setState(() => bathroomLight = !bathroomLight)),
-                ];
-
-                return Wrap(
-                  spacing: spacing,
-                  runSpacing: spacing,
-                  children: items
-                      .map((w) => SizedBox(width: itemWidth, child: w))
-                      .toList(),
-                );
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: 4,
+              padding: EdgeInsets.zero,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 1.8,
+              ),
+              itemBuilder: (context, index) {
+                switch (index) {
+                  case 0:
+                    return _roomQuickAction('Bedroom', Icons.bed, bedroomLight, () => setState(() => bedroomLight = !bedroomLight));
+                  case 1:
+                    return _roomQuickAction('Living', Icons.weekend, livingLight, () => setState(() => livingLight = !livingLight));
+                  case 2:
+                    return _roomQuickAction('Kitchen', Icons.kitchen, kitchenLight, () => setState(() => kitchenLight = !kitchenLight));
+                  default:
+                    return _roomQuickAction('Bathroom', Icons.shower, bathroomLight, () => setState(() => bathroomLight = !bathroomLight));
+                }
               },
             ),
           ],
@@ -207,7 +253,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final Color onFg = Colors.amber.shade900;
     final Color borderColor = Colors.amber.shade700;
     return ElevatedButton(
-      onPressed: onTap,
+      onPressed: () {
+        // Compute next state and publish it
+        final next = !isOn;
+        final topic = _topicForRoom(label);
+        if (topic != null) {
+          MqttService.instance.publishOnOff(topic, next);
+        }
+        // Update UI after publishing
+        onTap();
+      },
       style: ElevatedButton.styleFrom(
         padding: const EdgeInsets.symmetric(vertical: 14),
         backgroundColor: isOn ? onBg : null,
@@ -229,39 +284,122 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  String? _topicForRoom(String room) {
+    switch (room) {
+      case 'Bedroom':
+        return 'bedroom/light';
+      case 'Living':
+      case 'Living Room':
+        return 'living_room/light';
+      case 'Kitchen':
+        return 'kitchen/light';
+      case 'Bathroom':
+        return 'bathroom/light';
+    }
+    return null;
+  }
+
   Widget _buildWeather(BuildContext context) {
     return Card(
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.cloud, size: 40, color: Colors.blue.shade600),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(weatherSummary, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 4),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 4,
-                    children: [
-                      Text('${weatherTemp.toStringAsFixed(1)}°C'),
-                      Text('Humidity: $weatherHumidity%'),
-                      Text('AQI: $aqi'),
-                    ],
-                  ),
-                ],
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Living Room Environment', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+                Icon(Icons.home, color: Colors.blue.shade600),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _envTile(
+                  color: Colors.blue,
+                  icon: Icons.thermostat,
+                  label: 'Temp',
+                  value: weatherTemp.isNaN ? '—' : '${weatherTemp.toStringAsFixed(1)}°C',
+                )),
+                const SizedBox(width: 12),
+                Expanded(child: _envTile(
+                  color: Colors.green,
+                  icon: Icons.water_drop,
+                  label: 'Humidity',
+                  value: (weatherHumidity < 0) ? '—' : '$weatherHumidity%',
+                )),
+                const SizedBox(width: 12),
+                Expanded(child: _envTile(
+                  color: Colors.amber,
+                  icon: Icons.air,
+                  label: 'AQI',
+                  value: (aqi < 0) ? '—' : '$aqi',
+                )),
+              ],
             ),
           ],
         ),
       ),
     );
   }
+
+ Widget _envTile({
+  required MaterialColor color,
+  required IconData icon,
+  required String label,
+  required String value,
+}) {
+  return Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.08),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: color.withOpacity(0.35)),
+    ),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, color: color.shade600),
+        const SizedBox(height: 6),
+        Text(label),
+        const SizedBox(height: 4),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: RichText(
+            text: TextSpan(
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: color.shade900,
+              ),
+              children: [
+                TextSpan(text: value.replaceAll('°C', '')), // main numeric part
+                if (value.contains('°C'))
+                  WidgetSpan(
+                    alignment: PlaceholderAlignment.top,
+                    child: Transform.translate(
+                      offset: const Offset(1, -6),
+                      child: Text(
+                        '°C',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: color.shade900,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 
   Widget _buildClimateControl(BuildContext context) {
     return Card(
@@ -283,18 +421,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 Switch(
                   value: acOn,
-                  onChanged: (v) => setState(() => acOn = v),
+                  onChanged: (v) {
+                    setState(() => acOn = v);
+                    MqttService.instance.publishOnOff('climate/ac', v);
+                    if (v) {
+                      MqttService.instance.publishString('climate/ac_temperature', acTemp.toString());
+                    }
+                  },
                 ),
                 const SizedBox(width: 8),
                 Text(acOn ? 'AC On' : 'AC Off'),
                 const Spacer(),
                 IconButton(
-                  onPressed: acOn ? () => setState(() => acTemp = (acTemp - 1).clamp(16, 30)) : null,
+                  onPressed: acOn
+                      ? () {
+                          setState(() => acTemp = (acTemp - 1).clamp(16, 30));
+                          MqttService.instance.publishString('climate/ac_temperature', acTemp.toString());
+                        }
+                      : null,
                   icon: const Icon(Icons.remove_circle_outline),
                 ),
                 Text('$acTemp°C', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                 IconButton(
-                  onPressed: acOn ? () => setState(() => acTemp = (acTemp + 1).clamp(16, 30)) : null,
+                  onPressed: acOn
+                      ? () {
+                          setState(() => acTemp = (acTemp + 1).clamp(16, 30));
+                          MqttService.instance.publishString('climate/ac_temperature', acTemp.toString());
+                        }
+                      : null,
                   icon: const Icon(Icons.add_circle_outline),
                 ),
               ],

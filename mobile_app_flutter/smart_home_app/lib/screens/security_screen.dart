@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../services/mqtt_service.dart';
+import 'package:mqtt_client/mqtt_client.dart';
 
 class SecurityScreen extends StatefulWidget {
   const SecurityScreen({super.key});
@@ -38,7 +40,10 @@ class _SecurityScreenState extends State<SecurityScreen> {
                 leading: Icon(Icons.shield, color: _armed ? Colors.green : Colors.red),
                 title: Text(_armed ? 'System Armed' : 'System Disarmed'),
                 subtitle: const Text('Security status'),
-                trailing: Switch(value: _armed, onChanged: (v) => setState(() => _armed = v)),
+                trailing: Switch(value: _armed, onChanged: (v) {
+                  setState(() => _armed = v);
+                  MqttService.instance.publishOnOff('security/armed', v);
+                }),
               ),
             ),
             const SizedBox(height: 12),
@@ -105,6 +110,53 @@ class _SecurityScreenState extends State<SecurityScreen> {
         ),
       ),
     );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Subscribe to security-related MQTT topics
+    final m = MqttService.instance;
+    m.subscribe('security/door/front');
+    m.subscribe('security/door/back');
+    m.subscribe('security/window/living');
+    m.subscribe('security/window/bedroom');
+    m.subscribe('security/window/kitchen');
+    m.subscribe('bedroom/motion');
+    m.subscribe('kitchen/motion');
+    m.subscribe('living_room/motion');
+    m.subscribe('security/smoke');
+    m.subscribe('security/lpg');
+
+    m.messages.listen((event) {
+      final topic = event.topic;
+      final rec = event.payload as MqttPublishMessage;
+      final payload = MqttPublishPayload.bytesToStringAsString(rec.payload.message);
+      if (!mounted) return;
+      setState(() {
+        if (topic == 'security/door/front') {
+          _doorFrontLocked = payload.toUpperCase().contains('LOCK');
+        } else if (topic == 'security/door/back') {
+          _doorBackLocked = payload.toUpperCase().contains('LOCK');
+        } else if (topic == 'security/window/living') {
+          _winLivingClosed = payload.toUpperCase().contains('CLOSED');
+        } else if (topic == 'security/window/bedroom') {
+          _winBedroomClosed = payload.toUpperCase().contains('CLOSED');
+        } else if (topic == 'security/window/kitchen') {
+          _winKitchenClosed = payload.toUpperCase().contains('CLOSED');
+        } else if (topic == 'living_room/motion') {
+          _motionLiving = payload.toUpperCase().contains('DETECTED') || payload.toUpperCase() == 'ON';
+        } else if (topic == 'bedroom/motion') {
+          _motionBedroom = payload.toUpperCase().contains('DETECTED') || payload.toUpperCase() == 'ON';
+        } else if (topic == 'kitchen/motion') {
+          _motionKitchen = payload.toUpperCase().contains('DETECTED') || payload.toUpperCase() == 'ON';
+        } else if (topic == 'security/smoke') {
+          _smokeAlert = payload.toUpperCase().contains('ALERT');
+        } else if (topic == 'security/lpg') {
+          _lpgAlert = payload.toUpperCase().contains('ALERT');
+        }
+      });
+    });
   }
 
   Widget _section(String title, Widget child) {
