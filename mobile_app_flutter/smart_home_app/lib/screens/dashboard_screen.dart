@@ -178,7 +178,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Energy Today'),
+                    const Text('Grid Usage (Monthly)'),
                     Icon(Icons.bolt, color: Colors.amber.shade700),
                   ],
                 ),
@@ -201,16 +201,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Grid Usage (Monthly)'),
+                    const Text('Energy Today'),
                     Icon(Icons.grid_on, color: Theme.of(context).colorScheme.primary),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Text('${monthKwh.toStringAsFixed(1)} kWh',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text('Over $monthDays days',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[700])),
               ],
             ),
           ),

@@ -2,50 +2,73 @@
  * ESP8266 #3 - Energy Monitoring Controller
  * Based on Flutter App Screens: Energy
  * 
+ * Hardware:
+ * - ACS712 Current Sensor (5A/20A/30A variant)
+ * - Optional: Balcony Light, Front Door Light, Back Door Light, Window Light
+ * 
  * Controls:
- * - Energy Meter (PZEM-004T) - Current Usage, Cost, Monthly Usage
- * - Optional: Garage Light, Garden Light, Car Charger
+ * - Current Measurement (ACS712)
+ * - Power Calculation (Voltage × Current)
+ * - Energy Calculation (Power × Time)
+ * - Cost Calculation
+ * - MQTT-controlled perimeter lighting relays
  * 
  * MQTT Topics match Flutter app expectations
  */
 
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
-#include <SoftwareSerial.h>
 
 // WiFi Configuration - UPDATE THESE FOR YOUR MOBILE HOTSPOT
-const char* ssid = "YOUR_MOBILE_HOTSPOT_SSID";
-const char* password = "YOUR_HOTSPOT_PASSWORD";
+const char* ssid = "hotSpot123";
+const char* password = "pass123987";
 
 // MQTT Configuration - UPDATE THIS TO YOUR PC'S IP ON MOBILE HOTSPOT
-const char* mqtt_broker = "192.168.43.1";  // Change to your PC's IP
+const char* mqtt_broker = "10.231.104.106";  // Change to your PC's IP
 const int mqtt_port = 1883;
 const char* client_id = "ESP8266_EnergyMonitoring";
 
-// PZEM-004T Energy Meter (Serial communication)
-// Connect PZEM-004T RX to ESP8266 D6 (GPIO 12)
-// Connect PZEM-004T TX to ESP8266 D7 (GPIO 13)
-#define PZEM_RX_PIN D6
-#define PZEM_TX_PIN D7
-SoftwareSerial pzemSerial(PZEM_RX_PIN, PZEM_TX_PIN);
+// ACS712 Current Sensor Configuration
+// Choose your sensor variant:
+//   ACS712-5A:  use ACS712_SENSITIVITY = 185 (mV/A)
+//   ACS712-20A: use ACS712_SENSITIVITY = 100 (mV/A)
+//   ACS712-30A: use ACS712_SENSITIVITY = 66 (mV/A)
+#define ACS712_PIN A0              // Analog pin for ACS712 output
+#define ACS712_SENSITIVITY 100     // 100 mV/A for 20A variant (adjust for your sensor)
+#define ACS712_VCC 3.3             // ESP8266 ADC reference voltage (3.3V)
+#define ACS712_QUIESCENT_VOLTAGE 1.65  // VCC/2 (midpoint when no current)
+#define AC_VOLTAGE 220.0           // AC Mains voltage (adjust for your region: 110V or 220V)
 
-// Optional: Relay Pins for outdoor devices
-#define GARAGE_LIGHT_PIN D1
-#define GARDEN_LIGHT_PIN D2
-#define CAR_CHARGER_PIN D5
+// Number of samples for averaging (for noise reduction)
+#define SAMPLES 100
 
-// Device states (optional)
-bool garageLightState = false;
-bool gardenLightState = false;
-bool carChargerState = false;
+// Optional: Relay pins for perimeter lighting
+#define BALCONY_LIGHT_PIN D1
+#define FRONT_DOOR_LIGHT_PIN D2
+#define BACK_DOOR_LIGHT_PIN D5
+#define WINDOW_LIGHT_PIN D6
+// Appliance indicators
+#define SMART_TV_LED_PIN D7
+#define APPLIANCE_BUZZER_PIN D8
+
+// Device states
+bool balconyLightState = false;
+bool frontDoorLightState = false;
+bool backDoorLightState = false;
+bool windowLightState = false;
+bool smartTvState = false;
+bool musicSystemState = false;
+bool coffeeMakerState = false;
+bool applianceBuzzerState = false;
 
 // Energy data
-float voltage = 0.0;
-float current = 0.0;
-float power = 0.0;        // Watts
-float energy = 0.0;       // kWh (total energy consumed)
-float cost = 0.0;         // Cost in ₹
-float monthlyEnergy = 0.0; // Monthly kWh
+float voltage = AC_VOLTAGE;       // AC Mains voltage (assumed constant)
+float current = 0.0;              // Current in Amperes (from ACS712)
+float power = 0.0;                // Power in Watts (Voltage × Current)
+float energy = 0.0;               // Total energy consumed in kWh
+float cost = 0.0;                 // Cost in ₹
+float monthlyEnergy = 0.0;        // Monthly kWh
+unsigned long lastEnergyUpdate = 0;  // For energy integration
 
 // Energy cost per kWh (update based on your electricity rate)
 const float COST_PER_KWH = 7.0;  // ₹7 per kWh (adjust as needed)
@@ -58,15 +81,15 @@ const float COST_PER_KWH = 7.0;  // ₹7 per kWh (adjust as needed)
 #define ENERGY_VOLTAGE_TOPIC "energy/voltage"          // Voltage
 #define ENERGY_CURRENT_TOPIC "energy/current"          // Current
 
-// Optional topics
-#define GARAGE_LIGHT_TOPIC "garage/light"
-#define GARDEN_LIGHT_TOPIC "garden/light"
-#define CAR_CHARGER_TOPIC "car_charger/power"
-
-// MQTT Topics - Subscribed (Broker → ESP8266) - Optional
-#define GARAGE_LIGHT_CONTROL_TOPIC "garage/light"
-#define GARDEN_LIGHT_CONTROL_TOPIC "garden/light"
-#define CAR_CHARGER_CONTROL_TOPIC "car_charger/power"
+// Optional topics for smart lighting perimeter
+#define BALCONY_LIGHT_TOPIC "lights/balcony"
+#define FRONT_DOOR_LIGHT_TOPIC "lights/front_door"
+#define BACK_DOOR_LIGHT_TOPIC "lights/back_door"
+#define WINDOW_LIGHT_TOPIC "lights/window"
+// Appliance topics for Devices screen
+#define SMART_TV_TOPIC "appliances/tv"
+#define MUSIC_SYSTEM_TOPIC "appliances/music"
+#define COFFEE_MAKER_TOPIC "appliances/coffee"
 
 // Create instances
 WiFiClient espClient;
@@ -75,62 +98,131 @@ PubSubClient client(espClient);
 // Timing variables
 unsigned long lastEnergyRead = 0;
 unsigned long lastPublish = 0;
-const unsigned long ENERGY_READ_INTERVAL = 2000;  // Read energy meter every 2 seconds
+const unsigned long ENERGY_READ_INTERVAL = 1000;  // Read ACS712 every 1 second
 const unsigned long PUBLISH_INTERVAL = 5000;      // Publish every 5 seconds
 
-// PZEM-004T command functions
-void sendCommand(uint8_t cmd, uint8_t addr) {
-  uint8_t data[] = {0xB4, cmd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-  data[15] = calculateCRC(data, 15);
-  pzemSerial.write(data, 16);
-  delay(100);
+// Helper functions for publishing light states
+void publishLightState(const char* topic, bool state) {
+  if (!client.connected()) return;
+  client.publish(topic, state ? "ON" : "OFF", true);
 }
 
-uint8_t calculateCRC(uint8_t *data, uint8_t len) {
-  uint16_t crc = 0;
-  for (uint8_t i = 0; i < len; i++) {
-    crc += data[i];
+void publishAllLightStates() {
+  publishLightState(BALCONY_LIGHT_TOPIC, balconyLightState);
+  publishLightState(FRONT_DOOR_LIGHT_TOPIC, frontDoorLightState);
+  publishLightState(BACK_DOOR_LIGHT_TOPIC, backDoorLightState);
+  publishLightState(WINDOW_LIGHT_TOPIC, windowLightState);
+}
+
+void publishApplianceState(const char* topic, bool state) {
+  if (!client.connected()) return;
+  client.publish(topic, state ? "ON" : "OFF", true);
+}
+
+void publishAllApplianceStates() {
+  publishApplianceState(SMART_TV_TOPIC, smartTvState);
+  publishApplianceState(MUSIC_SYSTEM_TOPIC, musicSystemState);
+  publishApplianceState(COFFEE_MAKER_TOPIC, coffeeMakerState);
+}
+
+void updateApplianceOutputs() {
+  digitalWrite(SMART_TV_LED_PIN, smartTvState ? LOW : HIGH);
+
+  bool shouldBuzzerBeOn = smartTvState || musicSystemState || coffeeMakerState;
+  applianceBuzzerState = shouldBuzzerBeOn;
+  digitalWrite(APPLIANCE_BUZZER_PIN, applianceBuzzerState ? LOW : HIGH);
+}
+
+// ACS712 Current Reading Function
+float readACS712() {
+  // Read multiple samples and average for noise reduction
+  float sum = 0;
+  int minADC = 1024, maxADC = 0;
+  
+  for (int i = 0; i < SAMPLES; i++) {
+    int adcValue = analogRead(ACS712_PIN);
+    float voltage = (adcValue / 1024.0) * ACS712_VCC;  // Convert ADC to voltage
+    sum += voltage;
+    if (adcValue < minADC) minADC = adcValue;
+    if (adcValue > maxADC) maxADC = adcValue;
+    delay(2);  // Small delay between samples
   }
-  return (uint8_t)(crc & 0xFF);
+  
+  float avgVoltage = sum / SAMPLES;
+  
+  // Calculate current: (voltage - quiescent) / sensitivity
+  // For AC current, we need RMS value, but for simplicity, we'll use peak-to-peak
+  float voltageOffset = avgVoltage - ACS712_QUIESCENT_VOLTAGE;
+  float currentRMS = abs(voltageOffset) / (ACS712_SENSITIVITY / 1000.0);  // Convert mV/A to V/A
+  
+  // Serial output for debugging (only print occasionally to avoid spam)
+  static unsigned long lastDebugPrint = 0;
+  if (millis() - lastDebugPrint > 10000) {  // Print every 10 seconds
+    Serial.print("🔍 ACS712 Debug - ADC: ");
+    Serial.print(minADC);
+    Serial.print("-");
+    Serial.print(maxADC);
+    Serial.print(", Voltage: ");
+    Serial.print(avgVoltage, 3);
+    Serial.print("V, Offset: ");
+    Serial.print(voltageOffset, 3);
+    Serial.print("V, Current: ");
+    Serial.print(currentRMS, 3);
+    Serial.println("A");
+    lastDebugPrint = millis();
+  }
+  
+  return currentRMS;
 }
 
-bool readPZEMData() {
-  // Request energy data from PZEM-004T
-  sendCommand(0x04, 0x00);
+// Read current from ACS712 and calculate power
+void readCurrentAndPower() {
+  // Read current from ACS712
+  current = readACS712();
   
-  // Wait for response
-  delay(200);
+  // Calculate power (P = V × I for AC)
+  power = voltage * current;
   
-  if (pzemSerial.available() >= 25) {
-    uint8_t buffer[25];
-    pzemSerial.readBytes(buffer, 25);
+  // Print to serial monitor periodically
+  static unsigned long lastReadPrint = 0;
+  if (millis() - lastReadPrint > 2000) {  // Print every 2 seconds
+    Serial.print("📊 Reading - Current: ");
+    Serial.print(current, 3);
+    Serial.print(" A, Power: ");
+    Serial.print(power, 1);
+    Serial.println(" W");
+    lastReadPrint = millis();
+  }
+}
+
+// Calculate energy increment (integrate power over time)
+void updateEnergyData() {
+  unsigned long now = millis();
+  if (lastEnergyUpdate > 0) {
+    float timeHours = (now - lastEnergyUpdate) / 3600000.0;  // Convert ms to hours
+    float energyIncrement = power * timeHours / 1000.0;  // Convert W to kW, then to kWh
+    energy += energyIncrement;
     
-    // Parse response (simplified - adjust based on PZEM-004T protocol)
-    // Format: [Header][Command][Data...][CRC]
-    if (buffer[0] == 0xA4 && buffer[1] == 0x04) {
-      // Extract voltage (bytes 2-3)
-      voltage = ((buffer[2] << 8) | buffer[3]) / 10.0;
-      
-      // Extract current (bytes 4-7)
-      current = ((buffer[4] << 24) | (buffer[5] << 16) | (buffer[6] << 8) | buffer[7]) / 1000.0;
-      
-      // Extract power (bytes 8-11)
-      power = ((buffer[8] << 24) | (buffer[9] << 16) | (buffer[10] << 8) | buffer[11]) / 10.0;
-      
-      // Extract energy (bytes 12-15)
-      energy = ((buffer[12] << 24) | (buffer[13] << 16) | (buffer[14] << 8) | buffer[15]) / 1000.0;
-      
-      // Calculate cost
-      cost = energy * COST_PER_KWH;
-      
-      // For monthly, you would need to track daily and sum
-      // For now, use current energy as placeholder
-      monthlyEnergy = energy;  // Replace with actual monthly tracking
-      
-      return true;
+    // Calculate cost
+    cost = energy * COST_PER_KWH;
+    
+    // For monthly energy, you would reset at start of month
+    // For now, use total energy as monthly (you can add EEPROM storage for persistence)
+    monthlyEnergy = energy;
+    
+    // Print energy increment to serial (only if significant)
+    static unsigned long lastEnergyPrint = 0;
+    if (millis() - lastEnergyPrint > 5000 && energyIncrement > 0.0001) {  // Print every 5 seconds if increment > 0.0001 kWh
+      Serial.print("⚡ Energy Update - Increment: ");
+      Serial.print(energyIncrement, 6);
+      Serial.print(" kWh, Total: ");
+      Serial.print(energy, 4);
+      Serial.print(" kWh, Cost: ₹");
+      Serial.println(cost, 2);
+      lastEnergyPrint = millis();
     }
   }
-  return false;
+  lastEnergyUpdate = now;
 }
 
 void setup() {
@@ -141,19 +233,33 @@ void setup() {
   Serial.println("⚡ ESP8266 #3 - Energy Monitoring");
   Serial.println("====================================\n");
   
-  // Initialize PZEM-004T serial
-  pzemSerial.begin(9600);
-  Serial.println("✅ PZEM-004T initialized");
+  // Initialize ACS712 sensor pin
+  pinMode(ACS712_PIN, INPUT);
+  Serial.println("✅ ACS712 Current Sensor initialized");
+  Serial.print("   Sensitivity: ");
+  Serial.print(ACS712_SENSITIVITY);
+  Serial.println(" mV/A");
+  Serial.print("   AC Voltage: ");
+  Serial.print(AC_VOLTAGE);
+  Serial.println("V");
   
   // Initialize optional relay pins
-  pinMode(GARAGE_LIGHT_PIN, OUTPUT);
-  pinMode(GARDEN_LIGHT_PIN, OUTPUT);
-  pinMode(CAR_CHARGER_PIN, OUTPUT);
+  pinMode(BALCONY_LIGHT_PIN, OUTPUT);
+  pinMode(FRONT_DOOR_LIGHT_PIN, OUTPUT);
+  pinMode(BACK_DOOR_LIGHT_PIN, OUTPUT);
+  pinMode(WINDOW_LIGHT_PIN, OUTPUT);
+  pinMode(SMART_TV_LED_PIN, OUTPUT);
+  pinMode(APPLIANCE_BUZZER_PIN, OUTPUT);
   
-  // Turn off all devices initially
-  digitalWrite(GARAGE_LIGHT_PIN, HIGH);
-  digitalWrite(GARDEN_LIGHT_PIN, HIGH);
-  digitalWrite(CAR_CHARGER_PIN, HIGH);
+  // Turn off all devices initially (active LOW relays)
+  digitalWrite(BALCONY_LIGHT_PIN, HIGH);
+  digitalWrite(FRONT_DOOR_LIGHT_PIN, HIGH);
+  digitalWrite(BACK_DOOR_LIGHT_PIN, HIGH);
+  digitalWrite(WINDOW_LIGHT_PIN, HIGH);
+  updateApplianceOutputs();
+  
+  // Initialize energy tracking
+  lastEnergyUpdate = millis();
   
   // Connect to WiFi
   setup_wifi();
@@ -203,24 +309,69 @@ void callback(char* topic, byte* payload, unsigned int length) {
   String topicStr = String(topic);
   bool state = (message == "ON" || message == "1" || message == "true");
   
-  // Control optional devices
-  if (topicStr == GARAGE_LIGHT_CONTROL_TOPIC) {
-    garageLightState = state;
-    digitalWrite(GARAGE_LIGHT_PIN, garageLightState ? LOW : HIGH);
-    Serial.print("💡 Garage Light: ");
-    Serial.println(garageLightState ? "ON" : "OFF");
+  // Control optional devices - only update and publish if state actually changed
+  if (topicStr == BALCONY_LIGHT_TOPIC) {
+    if (balconyLightState != state) {
+      balconyLightState = state;
+      digitalWrite(BALCONY_LIGHT_PIN, balconyLightState ? LOW : HIGH);
+      Serial.print("💡 Balcony Light: ");
+      Serial.println(balconyLightState ? "ON" : "OFF");
+      publishLightState(BALCONY_LIGHT_TOPIC, balconyLightState);
+    }
   }
-  else if (topicStr == GARDEN_LIGHT_CONTROL_TOPIC) {
-    gardenLightState = state;
-    digitalWrite(GARDEN_LIGHT_PIN, gardenLightState ? LOW : HIGH);
-    Serial.print("💡 Garden Light: ");
-    Serial.println(gardenLightState ? "ON" : "OFF");
+  else if (topicStr == FRONT_DOOR_LIGHT_TOPIC) {
+    if (frontDoorLightState != state) {
+      frontDoorLightState = state;
+      digitalWrite(FRONT_DOOR_LIGHT_PIN, frontDoorLightState ? LOW : HIGH);
+      Serial.print("💡 Front Door Light: ");
+      Serial.println(frontDoorLightState ? "ON" : "OFF");
+      publishLightState(FRONT_DOOR_LIGHT_TOPIC, frontDoorLightState);
+    }
   }
-  else if (topicStr == CAR_CHARGER_CONTROL_TOPIC) {
-    carChargerState = state;
-    digitalWrite(CAR_CHARGER_PIN, carChargerState ? LOW : HIGH);
-    Serial.print("🔌 Car Charger: ");
-    Serial.println(carChargerState ? "ON" : "OFF");
+  else if (topicStr == BACK_DOOR_LIGHT_TOPIC) {
+    if (backDoorLightState != state) {
+      backDoorLightState = state;
+      digitalWrite(BACK_DOOR_LIGHT_PIN, backDoorLightState ? LOW : HIGH);
+      Serial.print("💡 Back Door Light: ");
+      Serial.println(backDoorLightState ? "ON" : "OFF");
+      publishLightState(BACK_DOOR_LIGHT_TOPIC, backDoorLightState);
+    }
+  }
+  else if (topicStr == WINDOW_LIGHT_TOPIC) {
+    if (windowLightState != state) {
+      windowLightState = state;
+      digitalWrite(WINDOW_LIGHT_PIN, windowLightState ? LOW : HIGH);
+      Serial.print("💡 Window Light: ");
+      Serial.println(windowLightState ? "ON" : "OFF");
+      publishLightState(WINDOW_LIGHT_TOPIC, windowLightState);
+    }
+  }
+  else if (topicStr == SMART_TV_TOPIC) {
+    if (smartTvState != state) {
+      smartTvState = state;
+      updateApplianceOutputs();
+      Serial.print("📺 Smart TV (LED + Buzzer): ");
+      Serial.println(smartTvState ? "ON" : "OFF");
+      publishApplianceState(SMART_TV_TOPIC, smartTvState);
+    }
+  }
+  else if (topicStr == MUSIC_SYSTEM_TOPIC) {
+    if (musicSystemState != state) {
+      musicSystemState = state;
+      updateApplianceOutputs();
+      Serial.print("🎵 Music System (Buzzer): ");
+      Serial.println(musicSystemState ? "ON" : "OFF");
+      publishApplianceState(MUSIC_SYSTEM_TOPIC, musicSystemState);
+    }
+  }
+  else if (topicStr == COFFEE_MAKER_TOPIC) {
+    if (coffeeMakerState != state) {
+      coffeeMakerState = state;
+      updateApplianceOutputs();
+      Serial.print("☕ Coffee Maker (Buzzer): ");
+      Serial.println(coffeeMakerState ? "ON" : "OFF");
+      publishApplianceState(COFFEE_MAKER_TOPIC, coffeeMakerState);
+    }
   }
 }
 
@@ -232,11 +383,19 @@ void reconnect() {
       Serial.println("✅ Connected!");
       
       Serial.println("📋 Subscribing to topics:");
-      // Subscribe to optional control topics
-      client.subscribe(GARAGE_LIGHT_CONTROL_TOPIC);
-      client.subscribe(GARDEN_LIGHT_CONTROL_TOPIC);
-      client.subscribe(CAR_CHARGER_CONTROL_TOPIC);
-      Serial.println("  ✓ All topics subscribed");
+      // Subscribe to perimeter lighting control topics
+      client.subscribe(BALCONY_LIGHT_TOPIC);
+      client.subscribe(FRONT_DOOR_LIGHT_TOPIC);
+      client.subscribe(BACK_DOOR_LIGHT_TOPIC);
+      client.subscribe(WINDOW_LIGHT_TOPIC);
+      Serial.println("  ✓ Lighting topics subscribed");
+      publishAllLightStates();
+      // Subscribe to appliance control topics
+      client.subscribe(SMART_TV_TOPIC);
+      client.subscribe(MUSIC_SYSTEM_TOPIC);
+      client.subscribe(COFFEE_MAKER_TOPIC);
+      Serial.println("  ✓ Appliance topics subscribed");
+      publishAllApplianceStates();
     } else {
       Serial.print("❌ Failed, rc=");
       Serial.print(client.state());
@@ -247,50 +406,74 @@ void reconnect() {
 }
 
 void publishEnergyData() {
-  // Read energy data from PZEM-004T
-  if (readPZEMData()) {
-    // Publish current consumption (kWh)
-    char energyStr[10];
-    dtostrf(energy, 4, 2, energyStr);
-    client.publish(ENERGY_CONSUMPTION_TOPIC, energyStr, false);
-    Serial.print("📤 Energy Consumption: ");
-    Serial.print(energyStr);
-    Serial.println(" kWh");
-    
-    // Publish current power (W)
-    char powerStr[10];
-    dtostrf(power, 4, 1, powerStr);
-    client.publish(ENERGY_POWER_TOPIC, powerStr, false);
-    Serial.print("📤 Power: ");
-    Serial.print(powerStr);
-    Serial.println(" W");
-    
-    // Publish cost (₹)
-    char costStr[10];
-    dtostrf(cost, 4, 2, costStr);
-    client.publish(ENERGY_COST_TOPIC, costStr, false);
-    Serial.print("📤 Cost: ₹");
-    Serial.println(costStr);
-    
-    // Publish monthly energy (kWh)
-    char monthlyStr[10];
-    dtostrf(monthlyEnergy, 4, 2, monthlyStr);
-    client.publish(ENERGY_MONTHLY_TOPIC, monthlyStr, false);
-    Serial.print("📤 Monthly Energy: ");
-    Serial.print(monthlyStr);
-    Serial.println(" kWh");
-    
-    // Optional: Publish voltage and current
-    char voltageStr[10];
-    dtostrf(voltage, 4, 1, voltageStr);
-    client.publish(ENERGY_VOLTAGE_TOPIC, voltageStr, false);
-    
-    char currentStr[10];
-    dtostrf(current, 4, 2, currentStr);
-    client.publish(ENERGY_CURRENT_TOPIC, currentStr, false);
-  } else {
-    Serial.println("⚠️  Failed to read PZEM-004T data");
-  }
+  // Read fresh current and power values
+  readCurrentAndPower();
+  
+  Serial.println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  Serial.println("📡 Publishing Energy Data to MQTT");
+  Serial.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  
+  // Publish voltage (assumed constant)
+  char voltageStr[10];
+  dtostrf(voltage, 4, 1, voltageStr);
+  client.publish(ENERGY_VOLTAGE_TOPIC, voltageStr, true);
+  Serial.print("📤 Voltage: ");
+  Serial.print(voltageStr);
+  Serial.println(" V");
+  
+  // Publish current (A)
+  char currentStr[10];
+  dtostrf(current, 4, 2, currentStr);
+  client.publish(ENERGY_CURRENT_TOPIC, currentStr, true);
+  Serial.print("📤 Current: ");
+  Serial.print(currentStr);
+  Serial.println(" A");
+  
+  // Publish current power (W)
+  char powerStr[10];
+  dtostrf(power, 4, 1, powerStr);
+  client.publish(ENERGY_POWER_TOPIC, powerStr, true);  // Retain for immediate display
+  Serial.print("📤 Power: ");
+  Serial.print(powerStr);
+  Serial.println(" W");
+  
+  // Publish current consumption (kWh)
+  char energyStr[10];
+  dtostrf(energy, 4, 3, energyStr);
+  client.publish(ENERGY_CONSUMPTION_TOPIC, energyStr, true);  // Retain for immediate display
+  Serial.print("📤 Energy Consumption: ");
+  Serial.print(energyStr);
+  Serial.println(" kWh");
+  
+  // Publish monthly energy (kWh)
+  char monthlyStr[10];
+  dtostrf(monthlyEnergy, 4, 3, monthlyStr);
+  client.publish(ENERGY_MONTHLY_TOPIC, monthlyStr, true);  // Retain for immediate display
+  Serial.print("📤 Monthly Energy: ");
+  Serial.print(monthlyStr);
+  Serial.println(" kWh");
+  
+  // Publish cost (₹)
+  char costStr[10];
+  dtostrf(cost, 4, 2, costStr);
+  client.publish(ENERGY_COST_TOPIC, costStr, true);  // Retain for immediate display
+  Serial.print("📤 Cost: ₹");
+  Serial.println(costStr);
+  
+  // One-line summary
+  Serial.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  Serial.print("⚡ Summary → V: ");
+  Serial.print(voltageStr);
+  Serial.print("V | I: ");
+  Serial.print(currentStr);
+  Serial.print("A | P: ");
+  Serial.print(powerStr);
+  Serial.print("W | E: ");
+  Serial.print(energyStr);
+  Serial.print("kWh | Cost: ₹");
+  Serial.print(costStr);
+  Serial.println();
+  Serial.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 }
 
 void loop() {
@@ -301,20 +484,48 @@ void loop() {
   
   unsigned long now = millis();
   
-  // Read energy meter periodically
-  if (now - lastEnergyRead >= ENERGY_READ_INTERVAL) {
-    lastEnergyRead = now;
+  // Read current and update energy data continuously (for accurate integration)
+  readCurrentAndPower();
+  updateEnergyData();
+  
+  // Print periodic status to serial (every 10 seconds)
+  static unsigned long lastStatusPrint = 0;
+  if (now - lastStatusPrint >= 10000) {
+    Serial.println("────────────────────────────────────────");
+    Serial.println("📊 Real-time Energy Status");
+    Serial.println("────────────────────────────────────────");
+    Serial.print("   Voltage: ");
+    Serial.print(voltage, 1);
+    Serial.println(" V");
+    Serial.print("   Current: ");
+    Serial.print(current, 3);
+    Serial.println(" A");
+    Serial.print("   Power: ");
+    Serial.print(power, 1);
+    Serial.println(" W");
+    Serial.print("   Total Energy: ");
+    Serial.print(energy, 4);
+    Serial.println(" kWh");
+    Serial.print("   Total Cost: ₹");
+    Serial.println(cost, 2);
+    Serial.print("   Monthly Energy: ");
+    Serial.print(monthlyEnergy, 4);
+    Serial.println(" kWh");
+    Serial.println("────────────────────────────────────────\n");
+    lastStatusPrint = now;
+  }
+  
+  // Publish energy data periodically
+  if (now - lastPublish >= PUBLISH_INTERVAL) {
+    lastPublish = now;
     
-    // Publish energy data every interval
-    if (now - lastPublish >= PUBLISH_INTERVAL) {
-      lastPublish = now;
-      
-      if (client.connected()) {
-        publishEnergyData();
-      }
+    if (client.connected()) {
+      publishEnergyData();
+    } else {
+      Serial.println("⚠️  MQTT not connected - skipping publish");
     }
   }
   
-  delay(100);
+  delay(50);  // Small delay for stability
 }
 

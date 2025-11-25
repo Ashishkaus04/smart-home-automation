@@ -18,9 +18,8 @@ class _SecurityScreenState extends State<SecurityScreen> {
   bool _doorFrontLocked = true;
   bool _doorBackLocked = false;
 
-  bool _motionLiving = false;
-  bool _motionBedroom = false;
-  bool _motionKitchen = false;
+  bool _motionPir1 = false;
+  bool _motionPir2 = false;
 
   bool _winLivingClosed = true;
   bool _winBedroomClosed = true;
@@ -45,9 +44,8 @@ class _SecurityScreenState extends State<SecurityScreen> {
       MqttService.instance.subscribe('security/window/bedroom');
       MqttService.instance.subscribe('security/window/kitchen');
 
-      MqttService.instance.subscribe('living_room/motion');
-      MqttService.instance.subscribe('bedroom/motion');
-      MqttService.instance.subscribe('kitchen/motion');
+      MqttService.instance.subscribe('security/motion/pir1');
+      MqttService.instance.subscribe('security/motion/pir2');
 
       MqttService.instance.subscribe('security/smoke');
       MqttService.instance.subscribe('security/lpg');
@@ -90,14 +88,11 @@ class _SecurityScreenState extends State<SecurityScreen> {
       }
 
       // --- Motion sensors ---
-      else if (topic == 'living_room/motion') {
-        _motionLiving = payload.toUpperCase().contains('DETECTED') ||
+      else if (topic == 'security/motion/pir1') {
+        _motionPir1 = payload.toUpperCase().contains('DETECTED') ||
             payload.toUpperCase() == 'ON';
-      } else if (topic == 'bedroom/motion') {
-        _motionBedroom = payload.toUpperCase().contains('DETECTED') ||
-            payload.toUpperCase() == 'ON';
-      } else if (topic == 'kitchen/motion') {
-        _motionKitchen = payload.toUpperCase().contains('DETECTED') ||
+      } else if (topic == 'security/motion/pir2') {
+        _motionPir2 = payload.toUpperCase().contains('DETECTED') ||
             payload.toUpperCase() == 'ON';
       }
 
@@ -245,49 +240,24 @@ class _SecurityScreenState extends State<SecurityScreen> {
             // MOTION
             _section(
               'Motion',
-              Column(
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                          child: _statusCard(
-                              'Living Motion',
-                              _motionLiving
-                                  ? Icons.motion_photos_on
-                                  : Icons.motion_photos_off,
-                              _motionLiving ? 'Detected' : 'Clear',
-                              _motionLiving
-                                  ? Colors.orange
-                                  : Colors.green)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                          child: _statusCard(
-                              'Bedroom Motion',
-                              _motionBedroom
-                                  ? Icons.motion_photos_on
-                                  : Icons.motion_photos_off,
-                              _motionBedroom ? 'Detected' : 'Clear',
-                              _motionBedroom
-                                  ? Colors.orange
-                                  : Colors.green)),
-                    ],
+                  Expanded(
+                    child: _statusCard(
+                      'PIR Sensor 1',
+                      _motionPir1 ? Icons.motion_photos_on : Icons.motion_photos_off,
+                      _motionPir1 ? 'Detected' : 'Clear',
+                      _motionPir1 ? Colors.orange : Colors.green,
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                          child: _statusCard(
-                              'Kitchen Motion',
-                              _motionKitchen
-                                  ? Icons.motion_photos_on
-                                  : Icons.motion_photos_off,
-                              _motionKitchen ? 'Detected' : 'Clear',
-                              _motionKitchen
-                                  ? Colors.orange
-                                  : Colors.green)),
-                      const SizedBox(width: 12),
-                      const Expanded(child: SizedBox()),
-                    ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _statusCard(
+                      'PIR Sensor 2',
+                      _motionPir2 ? Icons.motion_photos_on : Icons.motion_photos_off,
+                      _motionPir2 ? 'Detected' : 'Clear',
+                      _motionPir2 ? Colors.orange : Colors.green,
+                    ),
                   ),
                 ],
               ),

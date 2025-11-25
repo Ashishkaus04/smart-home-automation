@@ -26,6 +26,25 @@ class _DevicesScreenState extends State<DevicesScreen> {
     'Window Light': 'lights/window',
   };
 
+  // Appliance states (Smart TV, Music System, Coffee Maker)
+  final Map<String, bool> _applianceStates = {
+    'Smart TV': false,
+    'Music System': false,
+    'Coffee Maker': false,
+  };
+
+  final Map<String, String> _applianceTopic = {
+    'Smart TV': 'appliances/tv',
+    'Music System': 'appliances/music',
+    'Coffee Maker': 'appliances/coffee',
+  };
+
+  final Map<String, IconData> _applianceIcons = {
+    'Smart TV': Icons.tv,
+    'Music System': Icons.music_note,
+    'Coffee Maker': Icons.coffee,
+  };
+
   StreamSubscription? _mqttSub;
   
   // Track pending manual toggles to prevent feedback loop
@@ -39,7 +58,11 @@ class _DevicesScreenState extends State<DevicesScreen> {
     // Connect (no-op if already connected)
     MqttService.instance.connect().then((_) {
       // Subscribe to light state updates (ESP8266 #3 publishes retained messages on these topics)
-      for (final t in _lightTopic.values) {
+      final topics = <String>{
+        ..._lightTopic.values,
+        ..._applianceTopic.values,
+      };
+      for (final t in topics) {
         MqttService.instance.subscribe(t);
       }
     });
@@ -57,31 +80,58 @@ class _DevicesScreenState extends State<DevicesScreen> {
   }
 
   void _handleMqttMessage(String topic, String message) {
-    _lightTopic.forEach((room, lightTopic) {
-      if (topic == lightTopic) {
-        final isOn =
-            (message == 'ON' || message == '1' || message == 'true');
-        
-        // Check if this is a response to a recent manual toggle
-        final lastToggle = _pendingToggles[room];
-        if (lastToggle != null) {
-          final timeSinceToggle = DateTime.now().difference(lastToggle);
-          if (timeSinceToggle < _ignoreDuration) {
-            // Ignore MQTT updates within 500ms of manual toggle
-            // This prevents feedback loop from ESP8266 echo
-            return;
-          }
-          // Clear the pending toggle after ignore period
-          _pendingToggles.remove(room);
+    final handledLights = _updateStateFromTopic(
+      topic,
+      message,
+      _lightTopic,
+      _lightStates,
+    );
+
+    if (!handledLights) {
+      _updateStateFromTopic(
+        topic,
+        message,
+        _applianceTopic,
+        _applianceStates,
+      );
+    }
+  }
+
+  bool _updateStateFromTopic(
+    String topic,
+    String message,
+    Map<String, String> topicMap,
+    Map<String, bool> stateMap,
+  ) {
+    for (final entry in topicMap.entries) {
+      if (topic == entry.value) {
+        final key = entry.key;
+        final isOn = (message == 'ON' || message == '1' || message == 'true');
+
+        if (_shouldIgnoreEcho(key)) {
+          // Ignore MQTT update triggered by our own manual toggle
+          return true;
         }
-        
-        // Only update if state actually changed
-        final currentState = _lightStates[room] ?? false;
+
+        final currentState = stateMap[key] ?? false;
         if (currentState != isOn) {
-          setState(() => _lightStates[room] = isOn);
+          setState(() => stateMap[key] = isOn);
         }
+        return true;
       }
-    });
+    }
+    return false;
+  }
+
+  bool _shouldIgnoreEcho(String key) {
+    final lastToggle = _pendingToggles[key];
+    if (lastToggle == null) return false;
+    final timeSinceToggle = DateTime.now().difference(lastToggle);
+    if (timeSinceToggle < _ignoreDuration) {
+      return true;
+    }
+    _pendingToggles.remove(key);
+    return false;
   }
 
   @override
@@ -158,35 +208,45 @@ class _DevicesScreenState extends State<DevicesScreen> {
   }
 
   Widget _buildAppliances() {
-    // Placeholder appliances
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            _applianceTile('Smart TV', Icons.tv, false, (_) {}),
-            const Divider(),
-            _applianceTile('Music System', Icons.music_note, false, (_) {}),
-            const Divider(),
-            _applianceTile('Coffee Maker', Icons.coffee, false, (_) {}),
-          ],
-        ),
-      ),
+    return Column(
+      children: _applianceStates.keys.map((appliance) {
+        final isOn = _applianceStates[appliance] ?? false;
+        final topic = _applianceTopic[appliance];
+        final icon = _applianceIcons[appliance] ?? Icons.power;
+
+        return Card(
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  color: isOn ? Colors.green : null,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    appliance,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                Switch(
+                  value: isOn,
+                  onChanged: topic == null
+                      ? null
+                      : (value) {
+                          setState(() => _applianceStates[appliance] = value);
+                          _pendingToggles[appliance] = DateTime.now();
+                          MqttService.instance.publishOnOff(topic, value);
+                        },
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
-  Widget _applianceTile(
-      String title, IconData icon, bool value, ValueChanged<bool> onChanged) {
-    return Row(
-      children: [
-        Icon(icon),
-        const SizedBox(width: 12),
-        Expanded(
-            child: Text(title,
-                style: const TextStyle(fontWeight: FontWeight.w600))),
-        Switch(value: value, onChanged: onChanged),
-      ],
-    );
-  }
 }

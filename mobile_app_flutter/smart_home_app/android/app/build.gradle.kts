@@ -42,3 +42,8 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Required for LSTM model (uses SELECT_TF_OPS / Flex ops)
+    implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.14.0")
+}
