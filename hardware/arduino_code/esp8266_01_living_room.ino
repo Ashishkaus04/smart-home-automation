@@ -2,12 +2,15 @@
  * ESP8266 #1 - Living Room & Appliances Controller
  * Based on Flutter App Screens: Dashboard, Devices
  * 
+ * Hardware:
+ * - 4-Relay Module for Lights (IN1-D1, IN2-D2, IN3-D5, IN4-D6)
+ * - Separate relays for Appliances and Climate
+ * 
  * Controls:
- * - Lights: Living Room, Kitchen, Bathroom
+ * - Lights: Living Room, Kitchen, Bathroom (on 4-relay module)
  * - Appliances: TV, Music System, Coffee Maker
  * - Climate: Fan, AC
  * - Sensors: DHT22 (Temperature/Humidity), MQ135 (AQI)
- * - Security: Living Motion, Living Window
  * 
  * MQTT Topics match Flutter app expectations
  */
@@ -21,7 +24,7 @@
  const char* password = "pass123987";
  
  // MQTT Configuration - UPDATE THIS TO YOUR PC'S IP ON MOBILE HOTSPOT
- const char* mqtt_broker = "172.16.2.106";  // Change to your PC's IP
+ const char* mqtt_broker = "10.231.104.106";  // Change to your PC's IP
  const int mqtt_port = 1883;
  const char* client_id = "ESP8266_LivingRoom";
  
@@ -33,19 +36,25 @@
  // MQ135 Air Quality Sensor (for Dashboard AQI)
  #define MQ135_PIN A0
  
- // Relay Pins - Lights
- #define LIVING_ROOM_LIGHT_PIN D1
- #define KITCHEN_LIGHT_PIN D2
- #define BATHROOM_LIGHT_PIN D5
- 
- // Relay Pins - Appliances
- #define TV_PIN D6
- #define MUSIC_PIN D7
- #define COFFEE_PIN D8
- 
- // Relay Pins - Climate
- #define FAN_PIN D0
- #define AC_PIN D3
+// 4-Relay Module for Lights (Active LOW)
+// Relay Module Pin Mapping:
+//   Relay 1 (IN1) -> D1 -> Living Room Light
+//   Relay 2 (IN2) -> D2 -> Kitchen Light
+//   Relay 3 (IN3) -> D5 -> Bathroom Light
+//   Relay 4 (IN4) -> D6 -> (Reserved for future light or 4th light)
+#define LIVING_ROOM_LIGHT_PIN D1  // Relay Module IN1
+#define KITCHEN_LIGHT_PIN D2      // Relay Module IN2
+#define BATHROOM_LIGHT_PIN D5     // Relay Module IN3
+#define BEDROOM_LIGHT_PIN D6            // Relay Module IN4 (optional 4th light)
+
+// Relay Pins - Appliances (separate from 4-relay module)
+#define TV_PIN D7
+#define MUSIC_PIN D8
+#define COFFEE_PIN D0
+
+// Relay Pins - Climate
+#define FAN_PIN D3
+#define AC_PIN D4
  
  // Optional: Security sensors on ESP #1 are DISABLED to avoid using RX/TX (GPIO 3/1) which breaks Serial
  // If needed later, move these sensors to ESP8266 #2 (Security) or reassign to safe GPIOs
@@ -59,6 +68,7 @@
  bool livingRoomLightState = false;
  bool kitchenLightState = false;
  bool bathroomLightState = false;
+ bool bedroomLightState = false;
  bool tvState = false;
  bool musicState = false;
  bool coffeeState = false;
@@ -80,6 +90,7 @@
  #define LIVING_ROOM_LIGHT_TOPIC "living_room/light"
  #define KITCHEN_LIGHT_TOPIC "kitchen/light"
  #define BATHROOM_LIGHT_TOPIC "bathroom/light"
+ #define BEDROOM_LIGHT_TOPIC "bedroom/light"
  #define TV_TOPIC "appliances/tv"
  #define MUSIC_TOPIC "appliances/music"
  #define COFFEE_TOPIC "appliances/coffee"
@@ -102,29 +113,38 @@
    Serial.begin(115200);
    delay(100);
    
-   Serial.println("\n\n====================================");
-   Serial.println("🏠 ESP8266 #1 - Living Room Controller");
-   Serial.println("====================================\n");
-   
-   // Initialize relay pins (Active LOW relay)
-   pinMode(LIVING_ROOM_LIGHT_PIN, OUTPUT);
-   pinMode(KITCHEN_LIGHT_PIN, OUTPUT);
-   pinMode(BATHROOM_LIGHT_PIN, OUTPUT);
-   pinMode(TV_PIN, OUTPUT);
-   pinMode(MUSIC_PIN, OUTPUT);
-   pinMode(COFFEE_PIN, OUTPUT);
-   pinMode(FAN_PIN, OUTPUT);
-   pinMode(AC_PIN, OUTPUT);
-   
-   // Turn off all devices initially
-   digitalWrite(LIVING_ROOM_LIGHT_PIN, HIGH);
-   digitalWrite(KITCHEN_LIGHT_PIN, HIGH);
-   digitalWrite(BATHROOM_LIGHT_PIN, HIGH);
-   digitalWrite(TV_PIN, HIGH);
-   digitalWrite(MUSIC_PIN, HIGH);
-   digitalWrite(COFFEE_PIN, HIGH);
-   digitalWrite(FAN_PIN, HIGH);
-   digitalWrite(AC_PIN, HIGH);
+  Serial.println("\n\n====================================");
+  Serial.println("🏠 ESP8266 #1 - Living Room Controller");
+  Serial.println("====================================\n");
+  Serial.println("🔌 4-Relay Module Configuration:");
+  Serial.println("   Relay 1 (IN1-D1) -> Living Room Light");
+  Serial.println("   Relay 2 (IN2-D2) -> Kitchen Light");
+  Serial.println("   Relay 3 (IN3-D5) -> Bathroom Light");
+  Serial.println("   Relay 4 (IN4-D6) -> Reserved/Optional\n");
+  
+  // Initialize 4-Relay Module pins for lights (Active LOW relay)
+  pinMode(LIVING_ROOM_LIGHT_PIN, OUTPUT);  // Relay Module IN1
+  pinMode(KITCHEN_LIGHT_PIN, OUTPUT);      // Relay Module IN2
+  pinMode(BATHROOM_LIGHT_PIN, OUTPUT);     // Relay Module IN3
+  pinMode(BEDROOM_LIGHT_PIN, OUTPUT);            // Relay Module IN4 (optional)
+  
+  // Initialize appliance and climate relay pins
+  pinMode(TV_PIN, OUTPUT);
+  pinMode(MUSIC_PIN, OUTPUT);
+  pinMode(COFFEE_PIN, OUTPUT);
+  pinMode(FAN_PIN, OUTPUT);
+  pinMode(AC_PIN, OUTPUT);
+  
+  // Turn off all devices initially (Active LOW: HIGH = OFF, LOW = ON)
+  digitalWrite(LIVING_ROOM_LIGHT_PIN, HIGH);
+  digitalWrite(KITCHEN_LIGHT_PIN, HIGH);
+  digitalWrite(BATHROOM_LIGHT_PIN, HIGH);
+  digitalWrite(BEDROOM_LIGHT_PIN, HIGH);
+  digitalWrite(TV_PIN, HIGH);
+  digitalWrite(MUSIC_PIN, HIGH);
+  digitalWrite(COFFEE_PIN, HIGH);
+  digitalWrite(FAN_PIN, HIGH);
+  digitalWrite(AC_PIN, HIGH);
    
    // Security sensors disabled on this board to keep Serial working
    // Re-enable only if moved to safe pins
@@ -201,6 +221,12 @@
      Serial.print("💡 Bathroom Light: ");
      Serial.println(bathroomLightState ? "ON" : "OFF");
    }
+   else if (topicStr == BEDROOM_LIGHT_TOPIC) {
+    bedroomLightState = state;
+    digitalWrite(BEDROOM_LIGHT_PIN, bedroomLightState ? LOW : HIGH);
+    Serial.print("💡 Bedroom Light: ");
+    Serial.println(bedroomLightState ? "ON" : "OFF");
+  }
    else if (topicStr == TV_TOPIC) {
      tvState = state;
      digitalWrite(TV_PIN, tvState ? LOW : HIGH);
@@ -247,6 +273,7 @@
        client.subscribe(LIVING_ROOM_LIGHT_TOPIC);
        client.subscribe(KITCHEN_LIGHT_TOPIC);
        client.subscribe(BATHROOM_LIGHT_TOPIC);
+       client.subscribe(BEDROOM_LIGHT_TOPIC);
        client.subscribe(TV_TOPIC);
        client.subscribe(MUSIC_TOPIC);
        client.subscribe(COFFEE_TOPIC);

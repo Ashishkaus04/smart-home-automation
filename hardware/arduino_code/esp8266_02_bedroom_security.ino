@@ -23,17 +23,17 @@ const char* ssid = "hotSpot123";
 const char* password = "pass123987";
 
 // MQTT Configuration - UPDATE THIS TO YOUR PC'S IP ON MOBILE HOTSPOT
-const char* mqtt_broker = "172.16.2.106";  // Change to your PC's IP
+const char* mqtt_broker = "10.231.104.106";  // Change to your PC's IP
 const int mqtt_port = 1883;
 const char* client_id = "ESP8266_BedroomSecurity";
 
 // Relay Pins
-#define BEDROOM_LIGHT_PIN D1
+//#define BEDROOM_LIGHT_PIN D1
 #define BUZZER_PIN D2
 
 // Motion Sensor Pins (PIR)
-#define BEDROOM_MOTION_PIN D5
-#define KITCHEN_MOTION_PIN D6
+#define PIR1_PIN D5  // PIR sensor #1
+#define PIR2_PIN D6  // PIR sensor #2
 
 // Door Sensor Pins (Magnetic - LOW when closed)
 #define FRONT_DOOR_PIN D7
@@ -62,10 +62,10 @@ bool buzzerState = false;
 bool securityArmed = false;
 
 // Motion sensor states
-bool bedroomMotionDetected = false;
-bool kitchenMotionDetected = false;
-bool lastBedroomMotionState = false;
-bool lastKitchenMotionState = false;
+bool pir1MotionDetected = false;
+bool pir2MotionDetected = false;
+bool lastPir1State = false;
+bool lastPir2State = false;
 
 // Door sensor states
 bool frontDoorClosed = true;
@@ -84,8 +84,8 @@ bool lastKitchenWindowState = true;
 // MQTT Topics - Published (ESP8266 → Broker)
 #define BEDROOM_TEMP_TOPIC "bedroom/temperature"
 #define BEDROOM_HUMIDITY_TOPIC "bedroom/humidity"
-#define BEDROOM_MOTION_TOPIC "bedroom/motion"
-#define KITCHEN_MOTION_TOPIC "kitchen/motion"
+#define PIR1_MOTION_TOPIC "security/motion/pir1"
+#define PIR2_MOTION_TOPIC "security/motion/pir2"
 #define FRONT_DOOR_TOPIC "security/door/front"
 #define BACK_DOOR_TOPIC "security/door/back"
 #define LIVING_WINDOW_TOPIC "security/window/living"
@@ -96,7 +96,7 @@ bool lastKitchenWindowState = true;
 #define BUZZER_STATE_TOPIC "security/buzzer"
 
 // MQTT Topics - Subscribed (Broker → ESP8266)
-#define BEDROOM_LIGHT_TOPIC "bedroom/light"
+//#define BEDROOM_LIGHT_TOPIC "bedroom/light"
 #define SECURITY_ARMED_TOPIC "security/armed"
 #define BUZZER_CONTROL_TOPIC "security/buzzer"
 
@@ -121,12 +121,12 @@ void setup() {
   Serial.println("====================================\n");
   
   // Initialize output pins
-  pinMode(BEDROOM_LIGHT_PIN, OUTPUT);
+ // pinMode(BEDROOM_LIGHT_PIN, OUTPUT);
   pinMode(BUZZER_PIN, OUTPUT);
   
   // Initialize input pins
-  pinMode(BEDROOM_MOTION_PIN, INPUT);
-  pinMode(KITCHEN_MOTION_PIN, INPUT);
+  pinMode(PIR1_PIN, INPUT);
+  pinMode(PIR2_PIN, INPUT);
   pinMode(FRONT_DOOR_PIN, INPUT_PULLUP);
   pinMode(BACK_DOOR_PIN, INPUT_PULLUP);
   pinMode(LIVING_WINDOW_PIN, INPUT_PULLUP);
@@ -134,12 +134,12 @@ void setup() {
   pinMode(KITCHEN_WINDOW_PIN, INPUT_PULLUP);
   
   // Turn off all devices initially (Active LOW relay)
-  digitalWrite(BEDROOM_LIGHT_PIN, HIGH);
+ // digitalWrite(BEDROOM_LIGHT_PIN, HIGH);
   digitalWrite(BUZZER_PIN, HIGH);
   
   // Read initial sensor states
-  lastBedroomMotionState = digitalRead(BEDROOM_MOTION_PIN) == HIGH;
-  lastKitchenMotionState = digitalRead(KITCHEN_MOTION_PIN) == HIGH;
+  lastPir1State = digitalRead(PIR1_PIN) == HIGH;
+  lastPir2State = digitalRead(PIR2_PIN) == HIGH;
   lastFrontDoorState = digitalRead(FRONT_DOOR_PIN) == LOW;  // Closed = LOW
   lastBackDoorState = digitalRead(BACK_DOOR_PIN) == LOW;
   lastLivingWindowState = digitalRead(LIVING_WINDOW_PIN) == LOW;
@@ -201,12 +201,12 @@ void callback(char* topic, byte* payload, unsigned int length) {
   bool state = (message == "ON" || message == "1" || message == "true");
   
   // Control bedroom light
-  if (topicStr == BEDROOM_LIGHT_TOPIC) {
-    bedroomLightState = state;
-    digitalWrite(BEDROOM_LIGHT_PIN, bedroomLightState ? LOW : HIGH);
-    Serial.print("💡 Bedroom Light: ");
-    Serial.println(bedroomLightState ? "ON" : "OFF");
-  }
+  // if (topicStr == BEDROOM_LIGHT_TOPIC) {
+  //   bedroomLightState = state;
+  //   digitalWrite(BEDROOM_LIGHT_PIN, bedroomLightState ? LOW : HIGH);
+  //   Serial.print("💡 Bedroom Light: ");
+  //   Serial.println(bedroomLightState ? "ON" : "OFF");
+  // }
   // Security armed state
   else if (topicStr == SECURITY_ARMED_TOPIC) {
     securityArmed = state;
@@ -236,7 +236,7 @@ void reconnect() {
       Serial.println("✅ Connected!");
       
       Serial.println("📋 Subscribing to topics:");
-      client.subscribe(BEDROOM_LIGHT_TOPIC);
+      //client.subscribe(BEDROOM_LIGHT_TOPIC);
       client.subscribe(SECURITY_ARMED_TOPIC);
       client.subscribe(BUZZER_CONTROL_TOPIC);
       Serial.println("  ✓ All topics subscribed");
@@ -251,31 +251,31 @@ void reconnect() {
 
 void checkSensors() {
   // Read motion sensors
-  bool currentBedroomMotion = digitalRead(BEDROOM_MOTION_PIN) == HIGH;
-  bool currentKitchenMotion = digitalRead(KITCHEN_MOTION_PIN) == HIGH;
+  bool currentPir1Motion = digitalRead(PIR1_PIN) == HIGH;
+  bool currentPir2Motion = digitalRead(PIR2_PIN) == HIGH;
   
   // Publish motion changes
-  if (currentBedroomMotion != lastBedroomMotionState) {
-    bedroomMotionDetected = currentBedroomMotion;
-    lastBedroomMotionState = currentBedroomMotion;
-    client.publish(BEDROOM_MOTION_TOPIC, bedroomMotionDetected ? "DETECTED" : "CLEAR", false);
-    Serial.print("🚨 Bedroom Motion: ");
-    Serial.println(bedroomMotionDetected ? "DETECTED" : "CLEAR");
+  if (currentPir1Motion != lastPir1State) {
+    pir1MotionDetected = currentPir1Motion;
+    lastPir1State = currentPir1Motion;
+    client.publish(PIR1_MOTION_TOPIC, pir1MotionDetected ? "DETECTED" : "CLEAR", true);
+    Serial.print("🚨 PIR #1 Motion: ");
+    Serial.println(pir1MotionDetected ? "DETECTED" : "CLEAR");
     
     // Trigger alarm if armed
-    if (bedroomMotionDetected && securityArmed) {
+    if (pir1MotionDetected && securityArmed) {
       triggerAlarm();
     }
   }
   
-  if (currentKitchenMotion != lastKitchenMotionState) {
-    kitchenMotionDetected = currentKitchenMotion;
-    lastKitchenMotionState = currentKitchenMotion;
-    client.publish(KITCHEN_MOTION_TOPIC, kitchenMotionDetected ? "DETECTED" : "CLEAR", false);
-    Serial.print("🚨 Kitchen Motion: ");
-    Serial.println(kitchenMotionDetected ? "DETECTED" : "CLEAR");
+  if (currentPir2Motion != lastPir2State) {
+    pir2MotionDetected = currentPir2Motion;
+    lastPir2State = currentPir2Motion;
+    client.publish(PIR2_MOTION_TOPIC, pir2MotionDetected ? "DETECTED" : "CLEAR", true);
+    Serial.print("🚨 PIR #2 Motion: ");
+    Serial.println(pir2MotionDetected ? "DETECTED" : "CLEAR");
     
-    if (kitchenMotionDetected && securityArmed) {
+    if (pir2MotionDetected && securityArmed) {
       triggerAlarm();
     }
   }
@@ -412,8 +412,8 @@ void loop() {
     lastPublish = now;
     if (client.connected()) {
       // Publish current states
-      client.publish(BEDROOM_MOTION_TOPIC, bedroomMotionDetected ? "DETECTED" : "CLEAR", false);
-      client.publish(KITCHEN_MOTION_TOPIC, kitchenMotionDetected ? "DETECTED" : "CLEAR", false);
+      client.publish(PIR1_MOTION_TOPIC, pir1MotionDetected ? "DETECTED" : "CLEAR", true);
+      client.publish(PIR2_MOTION_TOPIC, pir2MotionDetected ? "DETECTED" : "CLEAR", true);
       client.publish(FRONT_DOOR_TOPIC, frontDoorClosed ? "LOCKED" : "UNLOCKED", false);
       client.publish(BACK_DOOR_TOPIC, backDoorClosed ? "LOCKED" : "UNLOCKED", false);
       client.publish(LIVING_WINDOW_TOPIC, livingWindowClosed ? "CLOSED" : "OPEN", false);
