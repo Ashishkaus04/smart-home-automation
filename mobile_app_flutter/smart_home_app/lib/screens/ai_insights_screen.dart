@@ -11,8 +11,15 @@ class AiInsightsScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('AI Insights', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+            Text(
+              'AI Insights',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleLarge
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 12),
+
             _insightCard(
               context,
               title: 'Optimization',
@@ -24,17 +31,19 @@ class AiInsightsScreen extends StatelessWidget {
                 'Enable eco modes on high-usage appliances',
               ],
             ),
+
             _insightCard(
               context,
               title: 'Security',
               icon: Icons.shield,
               color: Colors.indigo,
               points: const [
-                'Unusual motion detected patterns in kitchen at 2AM',
+                'Unusual motion detected in kitchen at 2AM',
                 'Recommend enabling auto-lock routine at 11PM',
                 'Add window open alerts for bedroom',
               ],
             ),
+
             _insightCard(
               context,
               title: 'Energy',
@@ -46,6 +55,7 @@ class AiInsightsScreen extends StatelessWidget {
                 'Potential saving ~12% with recommended plan',
               ],
             ),
+
             _insightCard(
               context,
               title: 'Maintenance',
@@ -57,20 +67,37 @@ class AiInsightsScreen extends StatelessWidget {
                 'Recommend appliance diagnostics next week',
               ],
             ),
+
             const SizedBox(height: 16),
-            Text('Model Performance', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+            Text(
+              'Model Performance',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleLarge
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
+
             _accuracyBar(context, 'Energy Prediction', 0.87),
             _accuracyBar(context, 'Pattern Recognition', 0.81),
             _accuracyBar(context, 'Anomaly Detection', 0.78),
             _accuracyBar(context, 'Optimization Engine', 0.84),
+
             const SizedBox(height: 16),
-            Text('Learning Progress', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+            Text(
+              'Learning Progress',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleLarge
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
-            _learningProgress(context,
+
+            _learningProgress(
               datapoints: 12437,
               patterns: 56,
               optimizations: 29,
+              context: context,
             ),
           ],
         ),
@@ -78,7 +105,13 @@ class AiInsightsScreen extends StatelessWidget {
     );
   }
 
-  Widget _insightCard(BuildContext context, {required String title, required IconData icon, required Color color, required List<String> points}) {
+  Widget _insightCard(
+    BuildContext context, {
+    required String title,
+    required IconData icon,
+    required Color color,
+    required List<String> points,
+  }) {
     return Card(
       elevation: 2,
       child: Padding(
@@ -94,16 +127,20 @@ class AiInsightsScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            ...points.map((p) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('• '),
-                      Expanded(child: Text(p)),
-                    ],
-                  ),
-                )),
+
+            ...points.map(
+              (p) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('• '),
+                    Expanded(child: Text(p)),
+                  ],
+                ),
+              ),
+            ),
+
             const SizedBox(height: 12),
             Row(
               children: [
@@ -128,6 +165,7 @@ class AiInsightsScreen extends StatelessWidget {
 
   Widget _accuracyBar(BuildContext context, String label, double value) {
     final pct = (value * 100).toStringAsFixed(0);
+
     return Card(
       elevation: 1,
       child: Padding(
@@ -143,13 +181,15 @@ class AiInsightsScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
+
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: LinearProgressIndicator(
-                minHeight: 10,
                 value: value.clamp(0.0, 1.0),
+                minHeight: 10,
                 color: Theme.of(context).colorScheme.primary,
-                backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.15),
+                backgroundColor:
+                    Theme.of(context).colorScheme.primary.withOpacity(0.15),
               ),
             ),
           ],
@@ -159,7 +199,12 @@ class AiInsightsScreen extends StatelessWidget {
   }
 }
 
-Widget _learningProgress(BuildContext context, {required int datapoints, required int patterns, required int optimizations}) {
+Widget _learningProgress({
+  required BuildContext context,
+  required int datapoints,
+  required int patterns,
+  required int optimizations,
+}) {
   return Card(
     elevation: 2,
     child: Padding(
@@ -167,22 +212,27 @@ Widget _learningProgress(BuildContext context, {required int datapoints, require
       child: LayoutBuilder(
         builder: (context, constraints) {
           final isNarrow = constraints.maxWidth < 380;
-          final items = <Widget>[
-            _progressItem(context, label: 'Data points', value: datapoints.toString(), icon: Icons.dataset),
-            _progressItem(context, label: 'Patterns', value: patterns.toString(), icon: Icons.auto_graph),
-            _progressItem(context, label: 'Optimizations', value: optimizations.toString(), icon: Icons.tune),
+
+          final items = [
+            _progressItem(context,
+                label: 'Data points', value: datapoints.toString(), icon: Icons.dataset),
+            _progressItem(context,
+                label: 'Patterns', value: patterns.toString(), icon: Icons.auto_graph),
+            _progressItem(context,
+                label: 'Optimizations', value: optimizations.toString(), icon: Icons.tune),
           ];
+
           if (isNarrow) {
             return Column(
               children: [
-                Row(children: [Expanded(child: items[0])]),
-                const SizedBox(height: 8),
-                Row(children: [Expanded(child: items[1])]),
-                const SizedBox(height: 8),
-                Row(children: [Expanded(child: items[2])]),
+                for (final item in items) ...[
+                  Row(children: [Expanded(child: item)]),
+                  const SizedBox(height: 8),
+                ]
               ],
             );
           }
+
           return Row(
             children: [
               Expanded(child: items[0]),
@@ -199,31 +249,40 @@ Widget _learningProgress(BuildContext context, {required int datapoints, require
 }
 
 Widget _vDivider() => SizedBox(
-  width: 12,
-  child: Center(child: SizedBox(width: 1, height: 40, child: DecoratedBox(decoration: BoxDecoration(color: Colors.black12)))),
-);
+      width: 12,
+      child: Center(
+        child: Container(width: 1, height: 40, color: Colors.black12),
+      ),
+    );
 
-Widget _progressItem(BuildContext context, {required String label, required String value, required IconData icon}) {
-  return Expanded(
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(icon, color: Theme.of(context).colorScheme.primary),
-        const SizedBox(width: 8),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(value, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-            Text(label, style: Theme.of(context).textTheme.labelSmall),
-          ],
-        ),
-      ],
-    ),
+Widget _progressItem(
+  BuildContext context, {
+  required String label,
+  required String value,
+  required IconData icon,
+}) {
+  return Row(
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: [
+      Icon(icon, color: Theme.of(context).colorScheme.primary),
+      const SizedBox(width: 8),
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(value,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold)),
+          Text(label, style: Theme.of(context).textTheme.labelSmall),
+        ],
+      ),
+    ],
   );
 }
 
-void _notify(BuildContext context, String message) {
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+void _notify(BuildContext context, String msg) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(msg)),
+  );
 }
-
-

@@ -50,11 +50,17 @@ class _AutomationScreenState extends State<AutomationScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Add Automation Rule', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                'Add Automation Rule',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
               const SizedBox(height: 12),
               TextField(
                 controller: nameController,
-                decoration: const InputDecoration(labelText: 'Rule name', border: OutlineInputBorder()),
+                decoration:
+                    const InputDecoration(labelText: 'Rule name', border: OutlineInputBorder()),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -94,11 +100,31 @@ class _AutomationScreenState extends State<AutomationScreen> {
                 onPressed: () {
                   final name = nameController.text.trim();
                   if (name.isEmpty) return;
-                  final conditions = condController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-                  final actions = actController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+
+                  final conditions = condController.text
+                      .split(',')
+                      .map((e) => e.trim())
+                      .where((e) => e.isNotEmpty)
+                      .toList();
+
+                  final actions = actController.text
+                      .split(',')
+                      .map((e) => e.trim())
+                      .where((e) => e.isNotEmpty)
+                      .toList();
+
                   setState(() {
-                    _rules.insert(0, AutomationRule(name: name, enabled: enabled, conditions: conditions, actions: actions));
+                    _rules.insert(
+                      0,
+                      AutomationRule(
+                        name: name,
+                        enabled: enabled,
+                        conditions: conditions,
+                        actions: actions,
+                      ),
+                    );
                   });
+
                   Navigator.pop(ctx);
                 },
                 icon: const Icon(Icons.add),
@@ -125,12 +151,24 @@ class _AutomationScreenState extends State<AutomationScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Automation Rules', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                'Automation Rules',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
               const SizedBox(height: 8),
               ..._rules.map((r) => _ruleCard(r)).toList(),
+
               const SizedBox(height: 16),
-              Text("Today's Schedule", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                "Today's Schedule",
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
               const SizedBox(height: 8),
+
               Card(
                 elevation: 2,
                 child: Column(
@@ -144,7 +182,9 @@ class _AutomationScreenState extends State<AutomationScreen> {
                                 trailing: Icon(
                                   e.status == ScheduleStatus.pending
                                       ? Icons.schedule
-                                      : (e.status == ScheduleStatus.done ? Icons.check_circle : Icons.remove_circle_outline),
+                                      : (e.status == ScheduleStatus.done
+                                          ? Icons.check_circle
+                                          : Icons.remove_circle_outline),
                                   color: e.status == ScheduleStatus.pending
                                       ? Colors.orange
                                       : (e.status == ScheduleStatus.done ? Colors.green : Colors.grey),
@@ -183,6 +223,8 @@ class _AutomationScreenState extends State<AutomationScreen> {
               ],
             ),
             const SizedBox(height: 8),
+
+            // Conditions
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -196,7 +238,10 @@ class _AutomationScreenState extends State<AutomationScreen> {
                 ),
               ],
             ),
+
             const SizedBox(height: 8),
+
+            // Actions
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -205,7 +250,9 @@ class _AutomationScreenState extends State<AutomationScreen> {
                   child: Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: r.actions.map((a) => InputChip(label: Text(a), onPressed: () {})).toList(),
+                    children: r.actions
+                        .map((a) => InputChip(label: Text(a), onPressed: () {}))
+                        .toList(),
                   ),
                 ),
               ],
@@ -238,16 +285,21 @@ class AutomationRule {
   bool enabled;
   final List<String> conditions;
   final List<String> actions;
-  AutomationRule({required this.name, required this.enabled, required this.conditions, required this.actions});
+
+  AutomationRule({
+    required this.name,
+    required this.enabled,
+    required this.conditions,
+    required this.actions,
+  });
 }
 
 class TodayScheduleItem {
   final String time;
   final String title;
   final ScheduleStatus status;
+
   TodayScheduleItem({required this.time, required this.title, required this.status});
 }
 
 enum ScheduleStatus { pending, done, skipped }
-
-
