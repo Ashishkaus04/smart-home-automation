@@ -10,6 +10,12 @@
  * - Window Sensors: Living, Bedroom, Kitchen
  * - Gas Sensors: Smoke (MQ135), LPG (MQ6 or MQ135)
  * - Bedroom Environment: DHT22 (Temperature/Humidity)
+ * - SG90 Servo Motor: Front Door Control
+ * 
+ * SG90 Servo Wiring:
+ * - Red wire (VCC) → 5V or 3.3V
+ * - Brown/Black wire (GND) → GND
+ * - Orange/Yellow wire (Signal) → D1 (GPIO 5)
  * 
  * MQTT Topics match Flutter app expectations
  */
@@ -63,10 +69,15 @@ bool bedroomLightState = false;
 bool buzzerState = false;
 bool securityArmed = false;
 
-// Servo motor for front door
+// SG90 Servo motor for front door
 Servo frontDoorServo;
 int frontDoorPosition = 0;  // 0 = closed, 90 = open
 bool frontDoorOpen = false;
+
+// SG90 servo specifications
+const int SERVO_CLOSED_ANGLE = 0;    // Closed position
+const int SERVO_OPEN_ANGLE = 90;     // Open position  
+const int SERVO_MOVE_DELAY = 15;     // Delay between steps for smooth movement
 
 // Motion sensor states
 bool pir1MotionDetected = false;
@@ -132,10 +143,11 @@ void setup() {
  // pinMode(BEDROOM_LIGHT_PIN, OUTPUT);
   pinMode(BUZZER_PIN, OUTPUT);
   
-  // Initialize servo motor
+  // Initialize SG90 servo motor
   frontDoorServo.attach(SERVO_PIN);
-  frontDoorServo.write(0);  // Start with door closed
-  Serial.println("✅ Servo motor initialized (Front Door)");
+  frontDoorServo.write(SERVO_CLOSED_ANGLE);  // Start with door closed
+  delay(500);  // Give servo time to reach position
+  Serial.println("✅ SG90 Servo motor initialized (Front Door)");
   
   // Initialize input pins
   pinMode(PIR1_PIN, INPUT);
@@ -239,20 +251,22 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.print("🔔 Buzzer: ");
     Serial.println(buzzerState ? "ON" : "OFF");
   }
-  // Front door servo control
+  // SG90 servo control for front door
   else if (topicStr == FRONT_DOOR_CONTROL_TOPIC) {
     if (message == "OPEN" || message == "open") {
-      frontDoorOpen = true;
-      frontDoorPosition = 90;  // Open position (90 degrees)
-      frontDoorServo.write(frontDoorPosition);
-      Serial.println("🚪 Front Door: OPENING (Servo)");
-      client.publish(FRONT_DOOR_TOPIC, "UNLOCKED", false);
+      if (!frontDoorOpen) {  // Only move if not already open
+        frontDoorOpen = true;
+        Serial.println("🚪 Front Door: OPENING (SG90 Servo)");
+        moveServoSmoothly(SERVO_OPEN_ANGLE);
+        client.publish(FRONT_DOOR_TOPIC, "UNLOCKED", false);
+      }
     } else if (message == "CLOSE" || message == "close") {
-      frontDoorOpen = false;
-      frontDoorPosition = 0;  // Closed position (0 degrees)
-      frontDoorServo.write(frontDoorPosition);
-      Serial.println("🚪 Front Door: CLOSING (Servo)");
-      client.publish(FRONT_DOOR_TOPIC, "LOCKED", false);
+      if (frontDoorOpen) {  // Only move if not already closed
+        frontDoorOpen = false;
+        Serial.println("🚪 Front Door: CLOSING (SG90 Servo)");
+        moveServoSmoothly(SERVO_CLOSED_ANGLE);
+        client.publish(FRONT_DOOR_TOPIC, "LOCKED", false);
+      }
     }
   }
 }
@@ -366,6 +380,32 @@ void checkSensors() {
     Serial.print("🪟 Kitchen Window: ");
     Serial.println(kitchenWindowClosed ? "CLOSED" : "OPEN");
   }
+}
+
+// Smooth servo movement function for SG90
+void moveServoSmoothly(int targetAngle) {
+  int currentAngle = frontDoorPosition;
+  
+  if (currentAngle == targetAngle) return;  // Already at target
+  
+  int step = (targetAngle > currentAngle) ? 1 : -1;
+  
+  Serial.print("🚪 Moving servo from ");
+  Serial.print(currentAngle);
+  Serial.print("° to ");
+  Serial.print(targetAngle);
+  Serial.println("°");
+  
+  while (currentAngle != targetAngle) {
+    currentAngle += step;
+    frontDoorServo.write(currentAngle);
+    delay(SERVO_MOVE_DELAY);  // Small delay for smooth movement
+  }
+  
+  frontDoorPosition = targetAngle;
+  Serial.print("🚪 Servo reached position: ");
+  Serial.print(targetAngle);
+  Serial.println("°");
 }
 
 void triggerAlarm() {
