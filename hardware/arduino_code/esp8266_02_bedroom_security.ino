@@ -17,6 +17,7 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include <DHT.h>
+#include <Servo.h>
 
 // WiFi Configuration - UPDATE THESE FOR YOUR MOBILE HOTSPOT
 const char* ssid = "hotSpot123";
@@ -30,6 +31,7 @@ const char* client_id = "ESP8266_BedroomSecurity";
 // Relay Pins
 //#define BEDROOM_LIGHT_PIN D1
 #define BUZZER_PIN D2
+#define SERVO_PIN D1  // Servo motor for front door control
 
 // Motion Sensor Pins (PIR)
 #define PIR1_PIN D5  // PIR sensor #1
@@ -60,6 +62,11 @@ const char* client_id = "ESP8266_BedroomSecurity";
 bool bedroomLightState = false;
 bool buzzerState = false;
 bool securityArmed = false;
+
+// Servo motor for front door
+Servo frontDoorServo;
+int frontDoorPosition = 0;  // 0 = closed, 90 = open
+bool frontDoorOpen = false;
 
 // Motion sensor states
 bool pir1MotionDetected = false;
@@ -99,6 +106,7 @@ bool lastKitchenWindowState = true;
 //#define BEDROOM_LIGHT_TOPIC "bedroom/light"
 #define SECURITY_ARMED_TOPIC "security/armed"
 #define BUZZER_CONTROL_TOPIC "security/buzzer"
+#define FRONT_DOOR_CONTROL_TOPIC "security/door/front/control"
 
 // Create instances
 WiFiClient espClient;
@@ -124,6 +132,11 @@ void setup() {
  // pinMode(BEDROOM_LIGHT_PIN, OUTPUT);
   pinMode(BUZZER_PIN, OUTPUT);
   
+  // Initialize servo motor
+  frontDoorServo.attach(SERVO_PIN);
+  frontDoorServo.write(0);  // Start with door closed
+  Serial.println("✅ Servo motor initialized (Front Door)");
+  
   // Initialize input pins
   pinMode(PIR1_PIN, INPUT);
   pinMode(PIR2_PIN, INPUT);
@@ -146,9 +159,9 @@ void setup() {
   lastBedroomWindowState = digitalRead(BEDROOM_WINDOW_PIN) == LOW;
   lastKitchenWindowState = digitalRead(KITCHEN_WINDOW_PIN) == LOW;
   
-  // Initialize DHT22
-  dht.begin();
-  Serial.println("✅ DHT22 initialized (Bedroom)");
+  // Initialize DHT22 (commented out if not used)
+  // dht.begin();
+  // Serial.println("✅ DHT22 initialized (Bedroom)");
   Serial.println("✅ MQ135 initialized (Smoke/LPG)");
   Serial.println("✅ All sensors initialized");
   
@@ -226,6 +239,22 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.print("🔔 Buzzer: ");
     Serial.println(buzzerState ? "ON" : "OFF");
   }
+  // Front door servo control
+  else if (topicStr == FRONT_DOOR_CONTROL_TOPIC) {
+    if (message == "OPEN" || message == "open") {
+      frontDoorOpen = true;
+      frontDoorPosition = 90;  // Open position (90 degrees)
+      frontDoorServo.write(frontDoorPosition);
+      Serial.println("🚪 Front Door: OPENING (Servo)");
+      client.publish(FRONT_DOOR_TOPIC, "UNLOCKED", false);
+    } else if (message == "CLOSE" || message == "close") {
+      frontDoorOpen = false;
+      frontDoorPosition = 0;  // Closed position (0 degrees)
+      frontDoorServo.write(frontDoorPosition);
+      Serial.println("🚪 Front Door: CLOSING (Servo)");
+      client.publish(FRONT_DOOR_TOPIC, "LOCKED", false);
+    }
+  }
 }
 
 void reconnect() {
@@ -239,6 +268,7 @@ void reconnect() {
       //client.subscribe(BEDROOM_LIGHT_TOPIC);
       client.subscribe(SECURITY_ARMED_TOPIC);
       client.subscribe(BUZZER_CONTROL_TOPIC);
+      client.subscribe(FRONT_DOOR_CONTROL_TOPIC);
       Serial.println("  ✓ All topics subscribed");
     } else {
       Serial.print("❌ Failed, rc=");
@@ -348,27 +378,27 @@ void triggerAlarm() {
 }
 
 void readAndPublishEnvironment() {
-  // Read DHT22
-  float t = dht.readTemperature();
-  float h = dht.readHumidity();
-  
-  if (!isnan(t)) {
-    char tStr[8];
-    dtostrf(t, 4, 1, tStr);
-    client.publish(BEDROOM_TEMP_TOPIC, tStr, false);
-    Serial.print("📤 Bedroom Temp: ");
-    Serial.print(tStr);
-    Serial.println("°C");
-  }
-  
-  if (!isnan(h)) {
-    char hStr[8];
-    dtostrf(h, 4, 1, hStr);
-    client.publish(BEDROOM_HUMIDITY_TOPIC, hStr, false);
-    Serial.print("📤 Bedroom Humidity: ");
-    Serial.print(hStr);
-    Serial.println("%");
-  }
+  // Read DHT22 (commented out if not used)
+  // float t = dht.readTemperature();
+  // float h = dht.readHumidity();
+  // 
+  // if (!isnan(t)) {
+  //   char tStr[8];
+  //   dtostrf(t, 4, 1, tStr);
+  //   client.publish(BEDROOM_TEMP_TOPIC, tStr, false);
+  //   Serial.print("📤 Bedroom Temp: ");
+  //   Serial.print(tStr);
+  //   Serial.println("°C");
+  // }
+  // 
+  // if (!isnan(h)) {
+  //   char hStr[8];
+  //   dtostrf(h, 4, 1, hStr);
+  //   client.publish(BEDROOM_HUMIDITY_TOPIC, hStr, false);
+  //   Serial.print("📤 Bedroom Humidity: ");
+  //   Serial.print(hStr);
+  //   Serial.println("%");
+  // }
   
   // Read MQ135 (use for both smoke and LPG)
   int gasValue = analogRead(MQ135_PIN);

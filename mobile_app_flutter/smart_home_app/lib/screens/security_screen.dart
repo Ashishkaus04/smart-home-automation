@@ -12,8 +12,9 @@ class SecurityScreen extends StatefulWidget {
 class _SecurityScreenState extends State<SecurityScreen> {
   // Local UI state
   bool _armed = true;
-  bool _camFrontOnline = true;
-  bool _camBackOnline = true;
+  // Cameras always online
+  static const bool _camFrontOnline = true;
+  static const bool _camBackOnline = true;
 
   bool _doorFrontLocked = true;
   bool _doorBackLocked = false;
@@ -143,7 +144,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
 
             const SizedBox(height: 12),
 
-            // Cameras
+            // Cameras (always online)
             _section(
               'Cameras',
               Row(
@@ -152,19 +153,15 @@ class _SecurityScreenState extends State<SecurityScreen> {
                       child: _statusCard(
                           'Front Camera',
                           Icons.videocam,
-                          _camFrontOnline ? 'Online' : 'Offline',
-                          _camFrontOnline ? Colors.green : Colors.red,
-                          onTap: () => setState(
-                              () => _camFrontOnline = !_camFrontOnline))),
+                          'Online',
+                          Colors.green)),
                   const SizedBox(width: 12),
                   Expanded(
                       child: _statusCard(
                           'Back Camera',
                           Icons.videocam,
-                          _camBackOnline ? 'Online' : 'Offline',
-                          _camBackOnline ? Colors.green : Colors.red,
-                          onTap: () => setState(
-                              () => _camBackOnline = !_camBackOnline))),
+                          'Online',
+                          Colors.green)),
                 ],
               ),
             ),
@@ -174,24 +171,95 @@ class _SecurityScreenState extends State<SecurityScreen> {
             // Doors
             _section(
               'Doors',
-              Row(
+              Column(
                 children: [
-                  Expanded(
-                    child: _statusCard(
-                        'Front Door',
-                        Icons.door_front_door,
-                        _doorFrontLocked ? 'Locked' : 'Unlocked',
-                        _doorFrontLocked ? Colors.green : Colors.red,
-                        onTap: () {}),
+                  // Front Door with servo control
+                  Card(
+                    elevation: 2,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: (_doorFrontLocked ? Colors.green : Colors.red).withOpacity(0.15),
+                                child: Icon(
+                                  Icons.door_front_door,
+                                  color: _doorFrontLocked ? Colors.green : Colors.red,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Front Door',
+                                      style: TextStyle(fontWeight: FontWeight.w600),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _doorFrontLocked ? 'Locked' : 'Unlocked',
+                                      style: TextStyle(
+                                        color: _doorFrontLocked ? Colors.green : Colors.red,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () {
+                                    MqttService.instance.publishString(
+                                      'security/door/front/control',
+                                      'OPEN',
+                                    );
+                                  },
+                                  icon: const Icon(Icons.lock_open, size: 18),
+                                  label: const Text('Open'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () {
+                                    MqttService.instance.publishString(
+                                      'security/door/front/control',
+                                      'CLOSE',
+                                    );
+                                  },
+                                  icon: const Icon(Icons.lock, size: 18),
+                                  label: const Text('Close'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.red,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _statusCard(
-                        'Back Door',
-                        Icons.door_back_door,
-                        _doorBackLocked ? 'Locked' : 'Unlocked',
-                        _doorBackLocked ? Colors.green : Colors.red,
-                        onTap: () {}),
+                  const SizedBox(height: 12),
+                  // Back Door (status only)
+                  _statusCard(
+                    'Back Door',
+                    Icons.door_back_door,
+                    _doorBackLocked ? 'Locked' : 'Unlocked',
+                    _doorBackLocked ? Colors.green : Colors.red,
                   ),
                 ],
               ),

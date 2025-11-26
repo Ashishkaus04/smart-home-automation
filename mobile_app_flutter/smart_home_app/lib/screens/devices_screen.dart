@@ -39,6 +39,17 @@ class _DevicesScreenState extends State<DevicesScreen> {
     'Coffee Maker': 'appliances/coffee',
   };
 
+  // Music System song selection
+  final List<String> _availableSongs = [
+    'Happy Birthday',
+    'Jingle Bells',
+    'Twinkle Twinkle',
+    'Mario Theme',
+    'Star Wars',
+    'Beep Beep',
+  ];
+  String _selectedSong = 'Happy Birthday';
+
   final Map<String, IconData> _applianceIcons = {
     'Smart TV': Icons.tv,
     'Music System': Icons.music_note,
@@ -61,6 +72,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
       final topics = <String>{
         ..._lightTopic.values,
         ..._applianceTopic.values,
+        'appliances/music/song', // Song selection topic
       };
       for (final t in topics) {
         MqttService.instance.subscribe(t);
@@ -218,35 +230,81 @@ class _DevicesScreenState extends State<DevicesScreen> {
           elevation: 2,
           child: Padding(
             padding: const EdgeInsets.all(12),
-            child: Row(
+            child: Column(
               children: [
-                Icon(
-                  icon,
-                  color: isOn ? Colors.green : null,
+                Row(
+                  children: [
+                    Icon(
+                      icon,
+                      color: isOn ? Colors.green : null,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        appliance,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    Switch(
+                      value: isOn,
+                      onChanged: topic == null
+                          ? null
+                          : (value) {
+                              setState(() => _applianceStates[appliance] = value);
+                              _pendingToggles[appliance] = DateTime.now();
+                              MqttService.instance.publishOnOff(topic, value);
+                              
+                              // If Music System is turned on, play selected song
+                              if (appliance == 'Music System' && value) {
+                                _playSelectedSong();
+                              }
+                            },
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    appliance,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                // Song selection for Music System
+                if (appliance == 'Music System' && isOn) ...[
+                  const SizedBox(height: 12),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.queue_music, size: 20),
+                      const SizedBox(width: 8),
+                      const Text('Select Song:', style: TextStyle(fontSize: 14)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: DropdownButton<String>(
+                          value: _selectedSong,
+                          isExpanded: true,
+                          items: _availableSongs.map((song) {
+                            return DropdownMenuItem(
+                              value: song,
+                              child: Text(song, style: const TextStyle(fontSize: 14)),
+                            );
+                          }).toList(),
+                          onChanged: (String? newSong) {
+                            if (newSong != null) {
+                              setState(() => _selectedSong = newSong);
+                              _playSelectedSong();
+                            }
+                          },
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                Switch(
-                  value: isOn,
-                  onChanged: topic == null
-                      ? null
-                      : (value) {
-                          setState(() => _applianceStates[appliance] = value);
-                          _pendingToggles[appliance] = DateTime.now();
-                          MqttService.instance.publishOnOff(topic, value);
-                        },
-                ),
+                ],
               ],
             ),
           ),
         );
       }).toList(),
     );
+  }
+
+  void _playSelectedSong() {
+    // Publish song selection to ESP8266
+    MqttService.instance.publishString('appliances/music/song', _selectedSong);
   }
 
 }

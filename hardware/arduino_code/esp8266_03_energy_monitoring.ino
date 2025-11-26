@@ -57,11 +57,17 @@
  bool frontDoorLightState = false;
  bool backDoorLightState = false;
  bool windowLightState = false;
- bool smartTvState = false;
- bool musicSystemState = false;
- bool coffeeMakerState = false;
- bool tvCoffeeBuzzerState = false;
- bool musicBuzzerState = false;
+bool smartTvState = false;
+bool musicSystemState = false;
+bool coffeeMakerState = false;
+bool tvCoffeeBuzzerState = false;
+bool musicBuzzerState = false;
+String selectedSong = "Happy Birthday";
+bool isPlayingSong = false;
+bool shouldStopSong = false;
+unsigned long songStartTime = 0;
+int currentSongNote = 0;
+String currentPlayingSong = "";
  
  // Energy data
  float voltage = AC_VOLTAGE;       // AC Mains voltage (assumed constant)
@@ -88,10 +94,11 @@
  #define FRONT_DOOR_LIGHT_TOPIC "lights/front_door"
  #define BACK_DOOR_LIGHT_TOPIC "lights/back_door"
  #define WINDOW_LIGHT_TOPIC "lights/window"
- // Appliance topics for Devices screen
- #define SMART_TV_TOPIC "appliances/tv"
- #define MUSIC_SYSTEM_TOPIC "appliances/music"
- #define COFFEE_MAKER_TOPIC "appliances/coffee"
+// Appliance topics for Devices screen
+#define SMART_TV_TOPIC "appliances/tv"
+#define MUSIC_SYSTEM_TOPIC "appliances/music"
+#define COFFEE_MAKER_TOPIC "appliances/coffee"
+#define MUSIC_SONG_TOPIC "appliances/music/song"
  
  // Create instances
  WiFiClient espClient;
@@ -127,17 +134,257 @@
    publishApplianceState(COFFEE_MAKER_TOPIC, coffeeMakerState);
  }
  
- void updateApplianceOutputs() {
-   digitalWrite(SMART_TV_LED_PIN, smartTvState ? HIGH : LOW);
- 
-   // Shared buzzer for Smart TV + Coffee Maker
-   tvCoffeeBuzzerState = (smartTvState || coffeeMakerState);
-   digitalWrite(TV_COFFEE_BUZZER_PIN, tvCoffeeBuzzerState ? HIGH : LOW);
- 
-   // Dedicated buzzer for Music System
-   musicBuzzerState = musicSystemState;
-   digitalWrite(MUSIC_BUZZER_PIN, musicBuzzerState ? HIGH : LOW);
- }
+// Simple blocking tone for compatibility (not used in current implementation, kept for reference)
+void playToneBlocking(int frequency, int duration) {
+  if (frequency == 0) {
+    digitalWrite(MUSIC_BUZZER_PIN, LOW);
+    delay(duration);
+    return;
+  }
+  
+  int period = 1000000 / frequency;
+  int halfPeriod = period / 2;
+  int cycles = (duration * 1000) / period;
+  
+  for (int i = 0; i < cycles; i++) {
+    digitalWrite(MUSIC_BUZZER_PIN, HIGH);
+    delayMicroseconds(halfPeriod);
+    digitalWrite(MUSIC_BUZZER_PIN, LOW);
+    delayMicroseconds(halfPeriod);
+  }
+}
+
+// Structure to hold song notes
+struct SongNote {
+  int frequency;
+  int duration;
+};
+
+// Song data arrays
+SongNote songHappyBirthday[] = {
+  {264, 250}, {264, 125}, {297, 500}, {264, 500}, {352, 500}, {330, 1000},
+  {264, 250}, {264, 125}, {297, 500}, {264, 500}, {396, 500}, {352, 1000},
+  {264, 250}, {264, 125}, {523, 500}, {440, 500}, {352, 500}, {330, 500}, {297, 1000}
+};
+const int songHappyBirthdayLen = sizeof(songHappyBirthday) / sizeof(SongNote);
+
+SongNote songJingleBells[] = {
+  {330, 200}, {330, 200}, {330, 400}, {330, 200}, {330, 200}, {330, 400},
+  {330, 200}, {392, 200}, {262, 300}, {294, 200}, {330, 800},
+  {349, 200}, {349, 200}, {349, 200}, {349, 200}, {349, 200},
+  {330, 200}, {330, 200}, {330, 200}, {294, 200}, {294, 200}, {330, 200},
+  {294, 400}, {392, 400}
+};
+const int songJingleBellsLen = sizeof(songJingleBells) / sizeof(SongNote);
+
+SongNote songTwinkle[] = {
+  {262, 400}, {262, 400}, {392, 400}, {392, 400}, {440, 400}, {440, 400}, {392, 800},
+  {349, 400}, {349, 400}, {330, 400}, {330, 400}, {294, 400}, {294, 400}, {262, 800}
+};
+const int songTwinkleLen = sizeof(songTwinkle) / sizeof(SongNote);
+
+SongNote songMario[] = {
+  {659, 125}, {659, 125}, {0, 125}, {659, 125}, {0, 125}, {523, 125}, {659, 250}, {784, 250},
+  {0, 250}, {392, 250}, {0, 250}, {523, 125}, {0, 125}, {392, 250}, {0, 250},
+  {330, 250}, {0, 250}, {440, 125}, {494, 125}, {466, 125}, {440, 250}
+};
+const int songMarioLen = sizeof(songMario) / sizeof(SongNote);
+
+SongNote songStarWars[] = {
+  {440, 500}, {440, 500}, {440, 500}, {349, 350}, {523, 150}, {440, 500},
+  {349, 350}, {523, 150}, {440, 1000}, {659, 500}, {659, 500}, {659, 500},
+  {698, 350}, {523, 150}, {415, 500}, {349, 350}, {523, 150}, {440, 1000}
+};
+const int songStarWarsLen = sizeof(songStarWars) / sizeof(SongNote);
+
+SongNote songBeepBeep[] = {
+  {440, 200}, {0, 100}, {523, 200}, {0, 200},
+  {440, 200}, {0, 100}, {523, 200}, {0, 200},
+  {440, 200}, {0, 100}, {523, 200}, {0, 200}
+};
+const int songBeepBeepLen = sizeof(songBeepBeep) / sizeof(SongNote);
+
+// Non-blocking song playback
+void updateSongPlayback() {
+  if (!musicSystemState || !isPlayingSong || shouldStopSong) {
+    if (shouldStopSong) {
+      isPlayingSong = false;
+      shouldStopSong = false;
+      currentSongNote = 0;
+      currentPlayingSong = "";
+      noTone(MUSIC_BUZZER_PIN);
+    }
+    return;
+  }
+  
+  // Get song data
+  SongNote* songData = nullptr;
+  int songLen = 0;
+  
+  if (currentPlayingSong == "Happy Birthday") {
+    songData = songHappyBirthday;
+    songLen = songHappyBirthdayLen;
+  } else if (currentPlayingSong == "Jingle Bells") {
+    songData = songJingleBells;
+    songLen = songJingleBellsLen;
+  } else if (currentPlayingSong == "Twinkle Twinkle") {
+    songData = songTwinkle;
+    songLen = songTwinkleLen;
+  } else if (currentPlayingSong == "Mario Theme") {
+    songData = songMario;
+    songLen = songMarioLen;
+  } else if (currentPlayingSong == "Star Wars") {
+    songData = songStarWars;
+    songLen = songStarWarsLen;
+  } else if (currentPlayingSong == "Beep Beep") {
+    songData = songBeepBeep;
+    songLen = songBeepBeepLen;
+  } else {
+    // Unknown song, stop
+    Serial.print("🎵 ERROR: Unknown song in playback: ");
+    Serial.println(currentPlayingSong);
+    isPlayingSong = false;
+    currentSongNote = 0;
+    currentPlayingSong = "";
+    return;
+  }
+  
+  // Debug: Print current note info
+  static int lastDebugNote = -1;
+  if (currentSongNote != lastDebugNote) {
+    Serial.print("🎵 Note ");
+    Serial.print(currentSongNote);
+    Serial.print("/");
+    Serial.print(songLen);
+    Serial.print(" - Freq: ");
+    Serial.print(songData[currentSongNote].frequency);
+    Serial.print("Hz, Duration: ");
+    Serial.print(songData[currentSongNote].duration);
+    Serial.println("ms");
+    lastDebugNote = currentSongNote;
+  }
+  
+  if (currentSongNote >= songLen) {
+    // Song finished
+    isPlayingSong = false;
+    currentSongNote = 0;
+    currentPlayingSong = "";
+    noTone(MUSIC_BUZZER_PIN);
+    Serial.println("🎵 Song finished");
+    return;
+  }
+  
+  // Calculate elapsed time since song started
+  unsigned long elapsed = millis() - songStartTime;
+  
+  // Calculate cumulative duration up to current note
+  unsigned long noteStartTime = 0;
+  for (int i = 0; i < currentSongNote; i++) {
+    noteStartTime += songData[i].duration;
+  }
+  
+  unsigned long noteEndTime = noteStartTime + songData[currentSongNote].duration;
+  
+  // Play current note
+  if (elapsed >= noteStartTime && elapsed < noteEndTime) {
+    int freq = songData[currentSongNote].frequency;
+    static int lastFreq = -1;
+    static unsigned long lastNoteStart = 0;
+    
+    // Only start tone if frequency changed or it's a new note
+    if (freq != lastFreq || noteStartTime != lastNoteStart) {
+      if (freq == 0) {
+        noTone(MUSIC_BUZZER_PIN);
+      } else {
+        tone(MUSIC_BUZZER_PIN, freq);
+      }
+      lastFreq = freq;
+      lastNoteStart = noteStartTime;
+    }
+  } else if (elapsed >= noteEndTime) {
+    // Move to next note
+    currentSongNote++;
+    if (currentSongNote >= songLen) {
+      // Song finished
+      isPlayingSong = false;
+      currentSongNote = 0;
+      currentPlayingSong = "";
+      noTone(MUSIC_BUZZER_PIN);
+      Serial.println("🎵 Song finished");
+    }
+  }
+}
+
+// Start playing a song (non-blocking)
+void playSong(String songName) {
+  // Trim and normalize song name
+  songName.trim();
+  
+  // Stop current song if playing
+  if (isPlayingSong) {
+    shouldStopSong = true;
+    // Don't use delay() - let updateSongPlayback() handle it
+  }
+  
+  if (!musicSystemState) return;
+  
+  // Check if song name matches
+  bool songFound = false;
+  if (songName == "Happy Birthday" || songName.indexOf("Happy Birthday") >= 0) {
+    currentPlayingSong = "Happy Birthday";
+    songFound = true;
+  } else if (songName == "Jingle Bells" || songName.indexOf("Jingle Bells") >= 0) {
+    currentPlayingSong = "Jingle Bells";
+    songFound = true;
+  } else if (songName == "Twinkle Twinkle" || songName.indexOf("Twinkle") >= 0) {
+    currentPlayingSong = "Twinkle Twinkle";
+    songFound = true;
+  } else if (songName == "Mario Theme" || songName.indexOf("Mario") >= 0) {
+    currentPlayingSong = "Mario Theme";
+    songFound = true;
+  } else if (songName == "Star Wars" || songName.indexOf("Star Wars") >= 0) {
+    currentPlayingSong = "Star Wars";
+    songFound = true;
+  } else if (songName == "Beep Beep" || songName.indexOf("Beep") >= 0) {
+    currentPlayingSong = "Beep Beep";
+    songFound = true;
+  }
+  
+  if (!songFound) {
+    Serial.print("🎵 Unknown song: ");
+    Serial.println(songName);
+    return;
+  }
+  
+  isPlayingSong = true;
+  shouldStopSong = false;
+  currentSongNote = 0;
+  songStartTime = millis();
+  
+  Serial.print("🎵 Playing song: ");
+  Serial.println(currentPlayingSong);
+  Serial.print("🎵 Song found: ");
+  Serial.println(songFound ? "YES" : "NO");
+  // Song playback is now handled by updateSongPlayback() in the main loop
+}
+
+void updateApplianceOutputs() {
+  // Only update LED if state actually changed to prevent blinking
+  static bool lastSmartTvState = false;
+  if (smartTvState != lastSmartTvState) {
+    digitalWrite(SMART_TV_LED_PIN, smartTvState ? HIGH : LOW);
+    lastSmartTvState = smartTvState;
+  }
+
+  // Shared buzzer for Smart TV + Coffee Maker
+  bool newBuzzerState = (smartTvState || coffeeMakerState);
+  if (tvCoffeeBuzzerState != newBuzzerState) {
+    tvCoffeeBuzzerState = newBuzzerState;
+    digitalWrite(TV_COFFEE_BUZZER_PIN, tvCoffeeBuzzerState ? HIGH : LOW);
+  }
+
+  // Music System buzzer is controlled by updateSongPlayback() in main loop
+}
  
  // ACS712 Current Reading Function
  float readACS712() {
@@ -353,34 +600,60 @@
        publishLightState(WINDOW_LIGHT_TOPIC, windowLightState);
      }
    }
-   else if (topicStr == SMART_TV_TOPIC) {
-     if (smartTvState != state) {
-       smartTvState = state;
-       updateApplianceOutputs();
-       Serial.print("📺 Smart TV (LED + Buzzer): ");
-       Serial.println(smartTvState ? "ON" : "OFF");
-       publishApplianceState(SMART_TV_TOPIC, smartTvState);
-     }
-   }
-   else if (topicStr == MUSIC_SYSTEM_TOPIC) {
-     if (musicSystemState != state) {
-       musicSystemState = state;
-       updateApplianceOutputs();
-       Serial.print("🎵 Music System (Buzzer): ");
-       Serial.println(musicSystemState ? "ON" : "OFF");
-       publishApplianceState(MUSIC_SYSTEM_TOPIC, musicSystemState);
-     }
-   }
-   else if (topicStr == COFFEE_MAKER_TOPIC) {
-     if (coffeeMakerState != state) {
-       coffeeMakerState = state;
-       updateApplianceOutputs();
-       Serial.print("☕ Coffee Maker (Buzzer): ");
-       Serial.println(coffeeMakerState ? "ON" : "OFF");
-       publishApplianceState(COFFEE_MAKER_TOPIC, coffeeMakerState);
-     }
-   }
- }
+  else if (topicStr == SMART_TV_TOPIC) {
+    if (smartTvState != state) {
+      smartTvState = state;
+      updateApplianceOutputs();
+      Serial.print("📺 Smart TV (LED + Buzzer): ");
+      Serial.println(smartTvState ? "ON" : "OFF");
+      // Only publish state if it actually changed to prevent feedback loop
+      publishApplianceState(SMART_TV_TOPIC, smartTvState);
+    }
+  }
+  else if (topicStr == MUSIC_SYSTEM_TOPIC) {
+    if (musicSystemState != state) {
+      musicSystemState = state;
+      if (musicSystemState) {
+        // Music system turned on - play selected song
+        playSong(selectedSong);
+      } else {
+        // Music system turned off - stop song
+        shouldStopSong = true;
+        isPlayingSong = false;
+        noTone(MUSIC_BUZZER_PIN);
+      }
+      Serial.print("🎵 Music System (Buzzer): ");
+      Serial.println(musicSystemState ? "ON" : "OFF");
+      publishApplianceState(MUSIC_SYSTEM_TOPIC, musicSystemState);
+    }
+  }
+  else if (topicStr == COFFEE_MAKER_TOPIC) {
+    if (coffeeMakerState != state) {
+      coffeeMakerState = state;
+      updateApplianceOutputs();
+      Serial.print("☕ Coffee Maker (Buzzer): ");
+      Serial.println(coffeeMakerState ? "ON" : "OFF");
+      publishApplianceState(COFFEE_MAKER_TOPIC, coffeeMakerState);
+    }
+  }
+  else if (topicStr == MUSIC_SONG_TOPIC) {
+    // Handle song selection - trim and normalize
+    String newSong = message;
+    newSong.trim();
+    
+    // Only update if song actually changed
+    if (newSong != selectedSong && newSong.length() > 0) {
+      selectedSong = newSong;
+      Serial.print("🎵 Song selected: ");
+      Serial.println(selectedSong);
+      
+      // If music system is on, play the new song (will interrupt current song)
+      if (musicSystemState) {
+        playSong(selectedSong);
+      }
+    }
+  }
+}
  
  void reconnect() {
    while (!client.connected()) {
@@ -397,12 +670,13 @@
        client.subscribe(WINDOW_LIGHT_TOPIC);
        Serial.println("  ✓ Lighting topics subscribed");
        publishAllLightStates();
-       // Subscribe to appliance control topics
-       client.subscribe(SMART_TV_TOPIC);
-       client.subscribe(MUSIC_SYSTEM_TOPIC);
-       client.subscribe(COFFEE_MAKER_TOPIC);
-       Serial.println("  ✓ Appliance topics subscribed");
-       publishAllApplianceStates();
+      // Subscribe to appliance control topics
+      client.subscribe(SMART_TV_TOPIC);
+      client.subscribe(MUSIC_SYSTEM_TOPIC);
+      client.subscribe(COFFEE_MAKER_TOPIC);
+      client.subscribe(MUSIC_SONG_TOPIC);
+      Serial.println("  ✓ Appliance topics subscribed");
+      publishAllApplianceStates();
      } else {
        Serial.print("❌ Failed, rc=");
        Serial.print(client.state());
@@ -483,17 +757,20 @@
    Serial.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
  }
  
- void loop() {
-   if (!client.connected()) {
-     reconnect();
-   }
-   client.loop();
-   
-   unsigned long now = millis();
-   
-   // Read current and update energy data continuously (for accurate integration)
-   readCurrentAndPower();
-   updateEnergyData();
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+  
+  unsigned long now = millis();
+  
+  // Update non-blocking song playback
+  updateSongPlayback();
+  
+  // Read current and update energy data continuously (for accurate integration)
+  readCurrentAndPower();
+  updateEnergyData();
    
    // Print periodic status to serial (every 10 seconds)
    static unsigned long lastStatusPrint = 0;

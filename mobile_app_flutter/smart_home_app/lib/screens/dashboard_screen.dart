@@ -12,7 +12,7 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   // Placeholder state/data. Replace with real services later.
   double todayKwh = 3.8;
-  double monthKwh = 92.4;
+  double monthKwh = 0;
   int monthDays = 30;
   String weatherSummary = 'Partly Cloudy';
   double weatherTemp = double.nan; // updated from MQTT

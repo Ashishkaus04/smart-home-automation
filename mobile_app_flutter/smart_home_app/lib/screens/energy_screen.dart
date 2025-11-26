@@ -1,8 +1,5 @@
-import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import '../services/mqtt_service.dart';
-import '../services/energy_data_service.dart';
-import '../services/lstm_prediction_service.dart';
 
 class EnergyScreen extends StatefulWidget {
   const EnergyScreen({super.key});
@@ -11,151 +8,27 @@ class EnergyScreen extends StatefulWidget {
   State<EnergyScreen> createState() => _EnergyScreenState();
 }
 
-class _EnergyScreenState extends State<EnergyScreen>
-    with TickerProviderStateMixin {
-  // Current data from MQTT
+class _EnergyScreenState extends State<EnergyScreen> {
+  // Current data (static demo values)
   double currentKwh = 1.8;
   double currentCost = 12.6;
   double gridKwhMonth = 92.4;
 
-  late final TabController _tabController;
+  // Demo data for LSTM comparison chart (matches notebook-style plot)
+  static final List<double> _demoActual = List<double>.generate(
+    200,
+    (index) => double.parse(
+      (1.05 + 0.25 * math.sin(index / 12)).toStringAsFixed(3),
+    ),
+  );
 
-  // Historical chart data
-  List<double> hourlyData = [];
-  List<double> dailyData = [];
-  List<double> monthlyData = [];
+  static final List<double> _demoPredicted = List<double>.generate(
+    200,
+    (index) => double.parse(
+      (1.02 + 0.22 * math.sin((index + 2) / 12)).toStringAsFixed(3),
+    ),
+  );
 
-  // Predictions
-  List<double>? hourlyPredictions;
-  List<double>? dailyPredictions;
-  List<double>? monthlyPredictions;
-
-  bool isLoadingPredictions = false;
-  String? predictionError;
-
-  StreamSubscription? _mqttSub;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-
-    _initializeData();
-    _loadLstmModel();
-    _setupMqtt();
-  }
-
-  @override
-  void dispose() {
-    _mqttSub?.cancel();
-    super.dispose();
-  }
-
-  // --------------------------------------------------------------
-  // INITIAL DATA
-  // --------------------------------------------------------------
-  Future<void> _initializeData() async {
-    hourlyData = await EnergyDataService.getHourlyValues(hours: 24);
-    dailyData = await EnergyDataService.getDailyValues(days: 7);
-
-    if (monthlyData.isEmpty) {
-      monthlyData = List.generate(30, (i) => 2.0 + (i % 5) * 0.6);
-    }
-
-    if (mounted) setState(() {});
-  }
-
-  // --------------------------------------------------------------
-  // LSTM MODEL LOADING + PREDICTION
-  // --------------------------------------------------------------
-  Future<void> _loadLstmModel() async {
-    setState(() {
-      isLoadingPredictions = true;
-      predictionError = null;
-    });
-
-    try {
-      final loaded = await LstmPredictionService.instance.loadModel();
-      if (loaded) {
-        await _generatePredictions();
-      } else {
-        setState(() {
-          predictionError = LstmPredictionService.instance.error ??
-              'Failed to load model';
-          isLoadingPredictions = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        predictionError = 'Error loading model: $e';
-        isLoadingPredictions = false;
-      });
-    }
-  }
-
-  Future<void> _generatePredictions() async {
-    try {
-      final hourly = await LstmPredictionService.instance.predictNext24Hours();
-      final daily = await LstmPredictionService.instance.predictNext7Days();
-      final monthly = await LstmPredictionService.instance.predictNext3Months();
-
-      if (!mounted) return;
-
-      setState(() {
-        hourlyPredictions = hourly;
-        dailyPredictions = daily;
-        monthlyPredictions = monthly;
-        isLoadingPredictions = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        predictionError = 'Prediction error: $e';
-        isLoadingPredictions = false;
-      });
-    }
-  }
-
-  // --------------------------------------------------------------
-  // MQTT HANDLING
-  // --------------------------------------------------------------
-  void _setupMqtt() {
-    // Connect then subscribe
-    MqttService.instance.connect().then((_) {
-      MqttService.instance.subscribe('energy/consumption');
-      MqttService.instance.subscribe('energy/cost');
-      MqttService.instance.subscribe('energy/monthly');
-      MqttService.instance.subscribe('energy/power');
-    });
-
-    // Listen to message stream
-    _mqttSub = MqttService.instance.messageStream.listen((msg) {
-      _handleMqtt(msg.topic, msg.message);
-    });
-  }
-
-  void _handleMqtt(String topic, String payload) {
-    if (!mounted) return;
-
-    setState(() {
-      if (topic == 'energy/consumption') {
-        final val = double.tryParse(payload);
-        if (val != null) {
-          currentKwh = val;
-          EnergyDataService.addHourlyData(val);
-          _initializeData();
-
-          if (LstmPredictionService.instance.isLoaded) {
-            _generatePredictions();
-          }
-        }
-      } else if (topic == 'energy/cost') {
-        currentCost = double.tryParse(payload) ?? currentCost;
-      } else if (topic == 'energy/monthly') {
-        gridKwhMonth = double.tryParse(payload) ?? gridKwhMonth;
-      }
-    });
-  }
 
   // --------------------------------------------------------------
   // UI
@@ -259,81 +132,23 @@ class _EnergyScreenState extends State<EnergyScreen>
   }
 
   Widget _predictionTabs(BuildContext context) {
+    final labels = List.generate(
+      _demoActual.length,
+      (i) => i % 20 == 0 ? 't$i' : '',
+    );
+
     return Card(
       elevation: 2,
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: TabBar(
-                  controller: _tabController,
-                  tabs: const [
-                    Tab(text: 'Today'),
-                    Tab(text: 'This Week'),
-                    Tab(text: 'This Month'),
-                  ],
-                ),
-              ),
-              if (isLoadingPredictions)
-                const Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                ),
-              if (predictionError != null)
-                Tooltip(
-                  message: predictionError!,
-                  child: const Padding(
-                    padding: EdgeInsets.all(8.0),
-                    child: Icon(Icons.warning,
-                        color: Colors.orange, size: 20),
-                  ),
-                ),
-            ],
-          ),
-          SizedBox(
-            height: 220,
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _PredictionChart(
-                  label: 'Next 24 Hours (kWh/hr)',
-                  predictions: hourlyPredictions,
-                  xLabels: List.generate(
-                    (hourlyPredictions?.length ?? 24),
-                    (i) => i % 3 == 0 ? '${i}h' : '',
-                  ),
-                  isLoading: isLoadingPredictions,
-                  error: predictionError,
-                ),
-                _PredictionChart(
-                  label: 'Next 7 Days (kWh/day)',
-                  predictions: dailyPredictions,
-                  xLabels: List.generate(
-                    (dailyPredictions?.length ?? 7),
-                    (i) => const ['M', 'T', 'W', 'T', 'F', 'S', 'S'][i % 7],
-                  ),
-                  isLoading: isLoadingPredictions,
-                  error: predictionError,
-                ),
-                _PredictionChart(
-                  label: 'Next 3 Months (kWh/month)',
-                  predictions: monthlyPredictions,
-                  xLabels: List.generate(
-                    (monthlyPredictions?.length ?? 3),
-                    (i) => 'M${i + 1}',
-                  ),
-                  isLoading: isLoadingPredictions,
-                  error: predictionError,
-                ),
-              ],
-            ),
-          ),
-        ],
+      child: SizedBox(
+        height: 260,
+        child: _LstmComparisonChart(
+          label: 'LSTM Prediction (kWh)',
+          actual: _demoActual,
+          predicted: _demoPredicted,
+          xLabels: labels,
+          isLoading: false,
+          error: null,
+        ),
       ),
     );
   }
@@ -387,18 +202,20 @@ class _StatCard extends StatelessWidget {
 }
 
 // --------------------------------------------------------------
-//  Prediction Chart
+//  LSTM Comparison Chart (Actual vs Predicted)
 // --------------------------------------------------------------
-class _PredictionChart extends StatelessWidget {
+class _LstmComparisonChart extends StatelessWidget {
   final String label;
-  final List<double>? predictions;
+  final List<double> actual;
+  final List<double>? predicted;
   final List<String> xLabels;
   final bool isLoading;
   final String? error;
 
-  const _PredictionChart({
+  const _LstmComparisonChart({
     required this.label,
-    required this.predictions,
+    required this.actual,
+    this.predicted,
     required this.xLabels,
     required this.isLoading,
     this.error,
@@ -411,8 +228,7 @@ class _PredictionChart extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('LSTM Prediction • $label',
-              style: Theme.of(context).textTheme.labelLarge),
+          Text(label, style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),
           Expanded(child: _body(context)),
         ],
@@ -430,132 +246,188 @@ class _PredictionChart extends StatelessWidget {
             style: TextStyle(color: Colors.red.shade600)),
       );
     }
-    if (predictions == null || predictions!.isEmpty) {
+    final predictedList = predicted ?? <double>[];
+    if (actual.isEmpty && predictedList.isEmpty) {
       return Center(
         child: Text(
-          'No predictions yet.\nKeep the ESP publishing energy data.',
+          'No data yet.\nKeep the ESP publishing energy data.',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodySmall,
         ),
       );
     }
 
-    final effectiveLabels = xLabels.length == predictions!.length
-        ? xLabels
-        : List.generate(predictions!.length,
-            (i) => i < xLabels.length ? xLabels[i] : '$i');
-
-    return _LineChart(
-      label: label,
-      data: predictions!,
-      xLabels: effectiveLabels,
-      lineColor: Colors.orange,
+    return _LstmComparisonLineChart(
+      actual: actual,
+      predicted: predicted,
+      xLabels: xLabels,
     );
   }
 }
 
 // --------------------------------------------------------------
-// Line Chart + Painter
+// LSTM Comparison Line Chart (Actual vs Predicted)
 // --------------------------------------------------------------
-class _LineChart extends StatelessWidget {
-  final String label;
-  final List<double> data;
+class _LstmComparisonLineChart extends StatelessWidget {
+  final List<double> actual;
+  final List<double>? predicted;
   final List<String> xLabels;
-  final Color lineColor;
 
-  const _LineChart(
-      {required this.label,
-      required this.data,
-      required this.xLabels,
-      required this.lineColor});
+  const _LstmComparisonLineChart({
+    required this.actual,
+    this.predicted,
+    required this.xLabels,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: 8),
-          Expanded(
-            child: CustomPaint(
-              painter: _LineChartPainter(data: data, color: lineColor),
-              child: Row(
-                children: List.generate(
-                  xLabels.length,
-                  (i) => Expanded(
-                    child: Align(
-                      alignment: Alignment.bottomCenter,
-                      child: Text(
-                        xLabels[i],
-                        style: Theme.of(context).textTheme.labelSmall,
-                      ),
+    final predictedList = predicted ?? <double>[];
+    final maxLength = actual.length > predictedList.length ? actual.length : predictedList.length;
+    final effectiveLabels = xLabels.length >= maxLength
+        ? xLabels.take(maxLength).toList()
+        : List.generate(maxLength, (i) => i < xLabels.length ? xLabels[i] : '');
+
+    return Column(
+      children: [
+        // Legend
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 16,
+                  height: 2,
+                  color: Colors.blue,
+                ),
+                const SizedBox(width: 4),
+                const Text('actual', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+            const SizedBox(width: 16),
+            Row(
+              children: [
+                Container(
+                  width: 16,
+                  height: 2,
+                  color: Colors.red,
+                ),
+                const SizedBox(width: 4),
+                const Text('prediction', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        // Chart
+        Expanded(
+          child: CustomPaint(
+            painter: _LstmComparisonPainter(
+              actual: actual,
+              predicted: predicted,
+            ),
+            child: Row(
+              children: List.generate(
+                effectiveLabels.length,
+                (i) => Expanded(
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Text(
+                      effectiveLabels[i],
+                      style: Theme.of(context).textTheme.labelSmall,
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
 
-class _LineChartPainter extends CustomPainter {
-  final List<double> data;
-  final Color color;
+class _LstmComparisonPainter extends CustomPainter {
+  final List<double> actual;
+  final List<double>? predicted;
 
-  _LineChartPainter({required this.data, required this.color});
+  _LstmComparisonPainter({
+    required this.actual,
+    this.predicted,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (data.isEmpty) return;
+    if (actual.isEmpty && (predicted == null || predicted!.isEmpty)) return;
 
-    final maxVal = data.reduce((a, b) => a > b ? a : b);
-    final minVal = data.reduce((a, b) => a < b ? a : b);
+    // Combine both datasets to find global min/max
+    final predictedList = predicted ?? <double>[];
+    final allValues = <double>[...actual, ...predictedList];
+    
+    if (allValues.isEmpty) return;
 
-    final dx = size.width / (data.length - 1);
+    final maxVal = allValues.reduce((a, b) => a > b ? a : b);
+    final minVal = allValues.reduce((a, b) => a < b ? a : b);
+    final range = maxVal - minVal;
+    if (range == 0) return;
+
     final height = size.height - 18;
+    final chartTop = 4.0;
+    final chartHeight = height - chartTop;
 
-    final path = Path();
+    // Draw actual line (blue with markers like notebook)
+    if (actual.isNotEmpty) {
+      final dx = size.width / (actual.length - 1);
+      final actualPath = Path();
 
-    for (int i = 0; i < data.length; i++) {
-      final x = i * dx;
-      final t = maxVal == minVal ? 0.5 : (data[i] - minVal) / (maxVal - minVal);
-      final y = height - t * (height - 8) + 4;
+      for (int i = 0; i < actual.length; i++) {
+        final x = i * dx;
+        final t = (actual[i] - minVal) / range;
+        final y = height - t * chartHeight;
 
-      if (i == 0)
-        path.moveTo(x, y);
-      else
-        path.lineTo(x, y);
+        if (i == 0) {
+          actualPath.moveTo(x, y);
+        } else {
+          actualPath.lineTo(x, y);
+        }
+
+        // Draw marker (dot) like in notebook
+        final markerPaint = Paint()
+          ..color = Colors.blue
+          ..style = PaintingStyle.fill;
+        canvas.drawCircle(Offset(x, y), 2.5, markerPaint);
+      }
+
+      final actualStroke = Paint()
+        ..color = Colors.blue
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      canvas.drawPath(actualPath, actualStroke);
     }
 
-    final stroke = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
+    // Draw predicted line (red like notebook)
+    if (predictedList.isNotEmpty) {
+      final dx = size.width / (predictedList.length - 1);
+      final predPath = Path();
 
-    canvas.drawPath(path, stroke);
+      for (int i = 0; i < predictedList.length; i++) {
+        final x = i * dx;
+        final t = (predictedList[i] - minVal) / range;
+        final y = height - t * chartHeight;
 
-    final fillPath = Path.from(path)
-      ..lineTo(size.width, height + 4)
-      ..lineTo(0, height + 4)
-      ..close();
+        if (i == 0) {
+          predPath.moveTo(x, y);
+        } else {
+          predPath.lineTo(x, y);
+        }
+      }
 
-    final fillPaint = Paint()
-      ..shader = LinearGradient(
-        colors: [
-          color.withOpacity(0.25),
-          color.withOpacity(0.05)
-        ],
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..style = PaintingStyle.fill;
-
-    canvas.drawPath(fillPath, fillPaint);
+      final predStroke = Paint()
+        ..color = Colors.red
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      canvas.drawPath(predPath, predStroke);
+    }
   }
 
   @override
