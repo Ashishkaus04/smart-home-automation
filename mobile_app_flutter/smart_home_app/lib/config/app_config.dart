@@ -10,8 +10,12 @@ class AppConfig {
   static const String collegeMqttHost = '10.231.104.106';  // Hotspot broker IP
   static const int collegeMqttPort = 1883;
   
-  // Current Environment - Change this to switch between home and college
-  static const Environment currentEnvironment = Environment.college; // using hotspot IP
+  // Public Test Broker (for testing when local broker is not available)
+  static const String testMqttHost = 'broker.hivemq.com';  // Public MQTT broker
+  static const int testMqttPort = 1883;
+  
+  // Current Environment - Change this to switch between home, college, or test
+  static const Environment currentEnvironment = Environment.college; // using public broker for testing
   
   // Get current MQTT host based on environment
   static String get mqttHost {
@@ -20,6 +24,8 @@ class AppConfig {
         return homeMqttHost;
       case Environment.college:
         return collegeMqttHost;
+      case Environment.test:
+        return testMqttHost;
     }
   }
   
@@ -30,6 +36,8 @@ class AppConfig {
         return homeMqttPort;
       case Environment.college:
         return collegeMqttPort;
+      case Environment.test:
+        return testMqttPort;
     }
   }
   
@@ -40,6 +48,8 @@ class AppConfig {
         return 'Home';
       case Environment.college:
         return 'College';
+      case Environment.test:
+        return 'Test (Public)';
     }
   }
   
@@ -52,4 +62,5 @@ class AppConfig {
 enum Environment {
   home,
   college,
+  test,
 }

@@ -16,7 +16,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
   static const bool _camFrontOnline = true;
   static const bool _camBackOnline = true;
 
-  bool _doorFrontLocked = true;
+  bool _doorFrontLocked = false;  // Default to unlocked as requested
   bool _doorBackLocked = false;
 
   bool _motionPir1 = false;
@@ -74,9 +74,17 @@ class _SecurityScreenState extends State<SecurityScreen> {
 
       // --- Doors ---
       else if (topic == 'security/door/front') {
-        _doorFrontLocked = payload.toUpperCase().contains('LOCK');
+        if (payload.toUpperCase().contains('LOCKED')) {
+          _doorFrontLocked = true;
+        } else if (payload.toUpperCase().contains('UNLOCKED')) {
+          _doorFrontLocked = false;
+        }
       } else if (topic == 'security/door/back') {
-        _doorBackLocked = payload.toUpperCase().contains('LOCK');
+        if (payload.toUpperCase().contains('LOCKED')) {
+          _doorBackLocked = true;
+        } else if (payload.toUpperCase().contains('UNLOCKED')) {
+          _doorBackLocked = false;
+        }
       }
 
       // --- Windows ---
@@ -184,10 +192,10 @@ class _SecurityScreenState extends State<SecurityScreen> {
                           Row(
                             children: [
                               CircleAvatar(
-                                backgroundColor: (_doorFrontLocked ? Colors.green : Colors.red).withOpacity(0.15),
+                                backgroundColor: (_doorFrontLocked ? Colors.green : Colors.orange).withOpacity(0.15),
                                 child: Icon(
                                   Icons.door_front_door,
-                                  color: _doorFrontLocked ? Colors.green : Colors.red,
+                                  color: _doorFrontLocked ? Colors.green : Colors.orange,
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -203,7 +211,8 @@ class _SecurityScreenState extends State<SecurityScreen> {
                                     Text(
                                       _doorFrontLocked ? 'Locked' : 'Unlocked',
                                       style: TextStyle(
-                                        color: _doorFrontLocked ? Colors.green : Colors.red,
+                                        color: _doorFrontLocked ? Colors.green : Colors.orange,
+                                        fontWeight: FontWeight.w500,
                                       ),
                                     ),
                                   ],
@@ -217,6 +226,11 @@ class _SecurityScreenState extends State<SecurityScreen> {
                               Expanded(
                                 child: ElevatedButton.icon(
                                   onPressed: () {
+                                    // Update local state immediately for responsive UI
+                                    setState(() {
+                                      _doorFrontLocked = false;
+                                    });
+                                    // Send MQTT command to ESP8266
                                     MqttService.instance.publishString(
                                       'security/door/front/control',
                                       'OPEN',
@@ -225,7 +239,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
                                   icon: const Icon(Icons.lock_open, size: 18),
                                   label: const Text('Open'),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.green,
+                                    backgroundColor: _doorFrontLocked ? Colors.orange : Colors.grey,
                                     foregroundColor: Colors.white,
                                   ),
                                 ),
@@ -234,6 +248,11 @@ class _SecurityScreenState extends State<SecurityScreen> {
                               Expanded(
                                 child: ElevatedButton.icon(
                                   onPressed: () {
+                                    // Update local state immediately for responsive UI
+                                    setState(() {
+                                      _doorFrontLocked = true;
+                                    });
+                                    // Send MQTT command to ESP8266
                                     MqttService.instance.publishString(
                                       'security/door/front/control',
                                       'CLOSE',
@@ -242,7 +261,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
                                   icon: const Icon(Icons.lock, size: 18),
                                   label: const Text('Close'),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.red,
+                                    backgroundColor: !_doorFrontLocked ? Colors.green : Colors.grey,
                                     foregroundColor: Colors.white,
                                   ),
                                 ),
@@ -259,7 +278,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
                     'Back Door',
                     Icons.door_back_door,
                     _doorBackLocked ? 'Locked' : 'Unlocked',
-                    _doorBackLocked ? Colors.green : Colors.red,
+                    _doorBackLocked ? Colors.green : Colors.orange,
                   ),
                 ],
               ),
