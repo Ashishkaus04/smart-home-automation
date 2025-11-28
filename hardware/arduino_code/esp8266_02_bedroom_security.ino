@@ -26,11 +26,11 @@
 #include <Servo.h>
 
 // WiFi Configuration - UPDATE THESE FOR YOUR MOBILE HOTSPOT
-const char* ssid = "hotSpot123";
-const char* password = "pass123987";
+const char* ssid = "";
+const char* password = "";
 
 // MQTT Configuration - UPDATE THIS TO YOUR PC'S IP ON MOBILE HOTSPOT
-const char* mqtt_broker = "10.231.104.106";  // Change to your PC's IP
+const char* mqtt_broker = "";  // Change to your PC's IP
 const int mqtt_port = 1883;
 const char* client_id = "ESP8266_BedroomSecurity";
 

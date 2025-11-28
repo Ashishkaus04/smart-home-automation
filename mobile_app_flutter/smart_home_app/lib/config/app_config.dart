@@ -3,11 +3,11 @@ class AppConfig {
   // Change these values based on your network environment
   
   // Home Network Configuration
-  static const String homeMqttHost = '10.231.104.106';  // PC IP on hotspot
+  static const String homeMqttHost = '';  // PC IP on hotspot
   static const int homeMqttPort = 1883;
   
   // College Network Configuration  
-  static const String collegeMqttHost = '10.231.104.106';  // Hotspot broker IP
+  static const String collegeMqttHost = '';  // Hotspot broker IP
   static const int collegeMqttPort = 1883;
   
   // Public Test Broker (for testing when local broker is not available)

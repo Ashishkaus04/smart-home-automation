@@ -6,7 +6,7 @@ class ApiConfig {
   // For Android emulator use 10.0.2.2, for iOS simulator use localhost.
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://10.251.6.106:5000',
+    defaultValue: '',
   );
 }
 
