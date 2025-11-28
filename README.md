@@ -430,11 +430,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
----
-
-## 👥 Authors
-
-- **Your Name** - *Initial work*
 
 ---
 
@@ -454,7 +449,6 @@ For issues, questions, or contributions:
 - Review Serial Monitor output for hardware issues
 - Check MQTT broker logs for communication problems
 - Refer to [PROJECT_SETUP_GUIDE.md](Read%20me%20files/PROJECT_SETUP_GUIDE.md) for detailed instructions
-
 ---
 
 **🏠 Happy Smart Home Automation!** 🚀
